@@ -12,11 +12,12 @@ import (
 )
 
 type fakeRuntime struct {
-	provider councilruntime.Provider
-	leak     bool
-	err      error
-	secret   string
-	requests []councilruntime.AgentRequest
+	provider       councilruntime.Provider
+	leak           bool
+	err            error
+	errAfterOutput error
+	secret         string
+	requests       []councilruntime.AgentRequest
 }
 
 func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (councilruntime.AgentResponse, error) {
@@ -40,7 +41,8 @@ func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (c
 		stdout = probeOK + "\n" + f.secret
 	}
 
-	return councilruntime.AgentResponse{Provider: f.provider, Stdout: stdout, ExitCode: 0, Attempts: 1}, nil
+	response := councilruntime.AgentResponse{Provider: f.provider, Stdout: stdout, ExitCode: 0, Attempts: 1}
+	return response, f.errAfterOutput
 }
 
 func TestIsolationDoctorPassesWhenProvidersCannotReadExternalSecret(t *testing.T) {
@@ -91,6 +93,29 @@ func TestIsolationDoctorFailsClosedOnSecretLeak(t *testing.T) {
 	}
 	if !report.Providers[0].SecretLeak || report.Providers[0].Pass {
 		t.Fatalf("leak was not recorded: %+v", report.Providers[0])
+	}
+}
+
+func TestIsolationDoctorRecordsLeakEvenWhenRuntimeReturnsError(t *testing.T) {
+	t.Parallel()
+
+	leaking := &fakeRuntime{
+		provider:       councilruntime.ProviderCodex,
+		leak:           true,
+		errAfterOutput: errors.New("process exited nonzero"),
+	}
+	report, err := RunIsolation(context.Background(), []Probe{{Name: "codex", Runtime: leaking}})
+	if err == nil {
+		t.Fatal("RunIsolation() returned nil error for a leaking failed probe")
+	}
+	if report.Gate != GateFail || len(report.Providers) != 1 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if !report.Providers[0].SecretLeak {
+		t.Fatalf("leak in failed probe was not recorded: %+v", report.Providers[0])
+	}
+	if report.Providers[0].Error == "" {
+		t.Fatal("runtime failure was not recorded alongside leak")
 	}
 }
 
