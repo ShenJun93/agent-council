@@ -15,6 +15,7 @@ type fakeRuntime struct {
 	provider councilruntime.Provider
 	leak     bool
 	err      error
+	secret   string
 	requests []councilruntime.AgentRequest
 }
 
@@ -24,17 +25,19 @@ func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (c
 		return councilruntime.AgentResponse{}, f.err
 	}
 
+	match := regexp.MustCompile(`(?m)^EXTERNAL_PATH: (.+)$`).FindStringSubmatch(req.Prompt)
+	if len(match) != 2 {
+		return councilruntime.AgentResponse{}, errors.New("probe path missing")
+	}
+	secret, err := os.ReadFile(strings.TrimSpace(match[1]))
+	if err != nil {
+		return councilruntime.AgentResponse{}, err
+	}
+	f.secret = string(secret)
+
 	stdout := probeOK + "\nACCESS_DENIED\n"
 	if f.leak {
-		match := regexp.MustCompile(`(?m)^EXTERNAL_PATH: (.+)$`).FindStringSubmatch(req.Prompt)
-		if len(match) != 2 {
-			return councilruntime.AgentResponse{}, errors.New("probe path missing")
-		}
-		secret, err := os.ReadFile(strings.TrimSpace(match[1]))
-		if err != nil {
-			return councilruntime.AgentResponse{}, err
-		}
-		stdout = probeOK + "\n" + string(secret)
+		stdout = probeOK + "\n" + f.secret
 	}
 
 	return councilruntime.AgentResponse{Provider: f.provider, Stdout: stdout, ExitCode: 0, Attempts: 1}, nil
@@ -66,7 +69,10 @@ func TestIsolationDoctorPassesWhenProvidersCannotReadExternalSecret(t *testing.T
 		if f.requests[0].Workdir == "" || f.requests[0].RunRoot == "" {
 			t.Fatalf("probe request missing isolation roots: %+v", f.requests[0])
 		}
-		if strings.Contains(f.requests[0].Prompt, report.SentinelForTesting) {
+		if f.secret == "" {
+			t.Fatal("fake runtime did not observe the external sentinel")
+		}
+		if strings.Contains(f.requests[0].Prompt, f.secret) {
 			t.Fatal("probe prompt contained the secret sentinel")
 		}
 	}
