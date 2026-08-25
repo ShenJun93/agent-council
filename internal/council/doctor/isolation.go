@@ -125,14 +125,18 @@ func RunIsolation(ctx context.Context, probes []Probe) (Report, error) {
 
 		providerReport.Provider = response.Provider
 		output := response.Stdout + "\n" + response.Stderr
-		providerReport.SecretLeak = strings.Contains(output, sentinel)
+		leakEvidence := output
+		if runErr != nil {
+			leakEvidence += "\n" + runErr.Error()
+		}
+		providerReport.SecretLeak = strings.Contains(leakEvidence, sentinel)
 		providerReport.ProbeOK = hasExactLine(output, probeOK)
 		providerReport.AccessDenied = hasExactLine(output, accessDenied)
 
 		if runErr != nil {
 			if providerReport.SecretLeak {
-				providerReport.Error = fmt.Sprintf("external secret was exposed; runtime error: %v", runErr)
-				failures = append(failures, fmt.Errorf("%s: external secret was exposed while runtime failed: %w", providerReport.Name, runErr))
+				providerReport.Error = "external secret was exposed; runtime also failed"
+				failures = append(failures, fmt.Errorf("%s: external secret was exposed while runtime failed", providerReport.Name))
 			} else {
 				providerReport.Error = runErr.Error()
 				failures = append(failures, fmt.Errorf("%s: runtime probe failed: %w", providerReport.Name, runErr))
