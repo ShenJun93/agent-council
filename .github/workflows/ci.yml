@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect Go module
+        id: module
+        shell: bash
+        run: |
+          if [[ -f go.mod ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "go.mod not present yet; Go checks are skipped during repository bootstrap."
+          fi
+
+      - name: Set up Go
+        if: steps.module.outputs.exists == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.x'
+          check-latest: false
+          cache: true
+
+      - name: Check gofmt
+        if: steps.module.outputs.exists == 'true'
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [[ -n "$files" ]]; then
+            echo "The following files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Test
+        if: steps.module.outputs.exists == 'true'
+        run: go test ./...
+
+      - name: Vet
+        if: steps.module.outputs.exists == 'true'
+        run: go vet ./...
+
+      - name: Lint
+        if: steps.module.outputs.exists == 'true'
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2

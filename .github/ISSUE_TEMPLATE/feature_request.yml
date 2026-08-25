@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a focused capability
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user/problem need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: How would we validate value?
+      description: Prefer measurable validation over infrastructure-first proposals.
