@@ -14,6 +14,10 @@ import (
 	"github.com/ShenJun93/agent-council/internal/council/visibility"
 )
 
+const claudeCouncilSystemPrompt = "You are an Agent Council participant. Use only the context in the user prompt. Do not access files, tools, plugins, skills, MCP servers, browsers, or prior sessions."
+
+const codexCouncilFilesystemProfile = `permissions.council.filesystem={":root"="deny",":minimal"="read",":workspace_roots"={"."="read"}}`
+
 type Provider string
 
 const (
@@ -167,7 +171,18 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		environ:  environ,
 		authArgs: []string{"auth", "status", "--json"},
 		runArgs: func(req AgentRequest) []string {
-			return []string{"-p", req.Prompt, "--output-format", "text", "--permission-mode", "plan"}
+			return []string{
+				"--bare",
+				"--tools", "",
+				"--strict-mcp-config",
+				"--disallowedTools", "mcp__*",
+				"--disable-slash-commands",
+				"--no-session-persistence",
+				"--system-prompt", claudeCouncilSystemPrompt,
+				"-p", req.Prompt,
+				"--output-format", "text",
+				"--permission-mode", "plan",
+			}
 		},
 		checkAuth: func(stdout string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
@@ -186,7 +201,18 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 		environ:  environ,
 		authArgs: []string{"login", "status"},
 		runArgs: func(req AgentRequest) []string {
-			return []string{"exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", req.Prompt}
+			return []string{
+				"exec",
+				"--ephemeral",
+				"--skip-git-repo-check",
+				"--ignore-user-config",
+				"--ignore-rules",
+				"--strict-config",
+				"-c", `default_permissions="council"`,
+				"-c", codexCouncilFilesystemProfile,
+				"-c", `agents.enabled=false`,
+				req.Prompt,
+			}
 		},
 		checkAuth: preflight.ValidateCodexAuth,
 	}
