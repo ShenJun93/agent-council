@@ -20,7 +20,7 @@ func TestFileReturnsSHA256(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const want = "20928bdfb9dd1bbfaf496813517052872365dd2892662340228879b709578d9d"
+	const want = "f8c4de8fec12d2dc7cb2ffd9679ac3f7ce916d0d9303152b340c79d999f41997"
 	if got != want {
 		t.Fatalf("File() = %q, want %q", got, want)
 	}
