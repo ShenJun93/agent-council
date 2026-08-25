@@ -26,7 +26,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runCouncilRun(args[2:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
+		_, _ = fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
 		printUsage(stderr)
 		return 2
 	}
@@ -43,7 +43,7 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "agentd council run requires exactly one problem file")
+		_, _ = fmt.Fprintln(stderr, "agentd council run requires exactly one problem file")
 		return 2
 	}
 
@@ -55,7 +55,7 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 		RunsRoot:         *runsDir,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "create council run: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "create council run: %v\n", err)
 		return 1
 	}
 
@@ -67,12 +67,12 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 		RunDir: filepath.Clean(manifest.RunDir),
 	}
 	if err := json.NewEncoder(stdout).Encode(out); err != nil {
-		fmt.Fprintf(stderr, "write output: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "write output: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: agentd council run [flags] <problem.md>")
+	_, _ = fmt.Fprintln(w, "usage: agentd council run [flags] <problem.md>")
 }
