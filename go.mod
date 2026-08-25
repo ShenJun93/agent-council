@@ -1,3 +1,3 @@
 module github.com/ShenJun93/agent-council
 
-go 1.27
+go 1.26
