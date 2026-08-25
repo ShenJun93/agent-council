@@ -53,3 +53,7 @@ The permanent rule is **explicit mode selection**:
 - subscription quota exhaustion never silently falls back to a metered API
 
 See [`docs/FUTURE_RUNTIME_EXPANSION.md`](docs/FUTURE_RUNTIME_EXPANSION.md).
+
+## Development status
+
+Repository governance and validation infrastructure are being bootstrapped before v0 implementation begins.
