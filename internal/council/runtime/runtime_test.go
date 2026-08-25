@@ -201,6 +201,22 @@ func TestRuntimeRejectsEmptyWorkdirBeforeSpawning(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsMissingRunRootBeforeSpawning(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeProcessRunner{}
+	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
+
+	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", Workdir: t.TempDir()})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Class != FailureIsolation {
+		t.Fatalf("Run() error = %v, want isolation failure", err)
+	}
+	if len(runner.specs) != 0 {
+		t.Fatalf("spawned %d processes without full run root", len(runner.specs))
+	}
+}
+
 func TestRuntimeRejectsWorkdirInsideFullRunRoot(t *testing.T) {
 	t.Parallel()
 
