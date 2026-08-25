@@ -102,15 +102,16 @@ func Materialize(req Request) (Workspace, error) {
 		}
 
 		target := filepath.Join(root, filepath.Clean(artifact.RelativePath))
-		withinWorkspace, err := IsWithin(root, filepath.Dir(target))
+		parent := filepath.Dir(target)
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return Workspace{}, fmt.Errorf("artifact %q create parent: %w", artifact.ID, err)
+		}
+		withinWorkspace, err := IsWithin(root, parent)
 		if err != nil {
 			return Workspace{}, fmt.Errorf("artifact %q path validation: %w", artifact.ID, err)
 		}
 		if !withinWorkspace {
 			return Workspace{}, fmt.Errorf("artifact %q escapes workspace", artifact.ID)
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return Workspace{}, fmt.Errorf("artifact %q create parent: %w", artifact.ID, err)
 		}
 		if err := os.WriteFile(target, artifact.Content, 0o600); err != nil {
 			return Workspace{}, fmt.Errorf("artifact %q materialize: %w", artifact.ID, err)
