@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ShenJun93/agent-council/internal/council/preflight"
+	"github.com/ShenJun93/agent-council/internal/council/visibility"
 )
 
 type Provider string
@@ -27,6 +28,7 @@ const (
 	FailureQuotaExhausted         FailureClass = "quota_exhausted"
 	FailureAuth                   FailureClass = "auth_failure"
 	FailureBillingPolicyViolation FailureClass = "billing_policy_violation"
+	FailureIsolation              FailureClass = "isolation_failure"
 	FailureProcess                FailureClass = "process_failure"
 	FailureMalformedOutput        FailureClass = "malformed_output"
 )
@@ -55,6 +57,7 @@ func (e *RunError) Unwrap() error {
 
 type AgentRequest struct {
 	RunID       string
+	RunRoot     string
 	Participant string
 	Role        string
 	Phase       string
@@ -190,6 +193,10 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 }
 
 func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, error) {
+	if err := validateWorkdir(req); err != nil {
+		return AgentResponse{}, &RunError{Class: FailureIsolation, Err: err}
+	}
+
 	parentEnv := r.environ()
 	if err := preflight.CheckSubscriptionEnvironment(parentEnv); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureBillingPolicyViolation, Err: err}
@@ -251,6 +258,30 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 	}
 
 	return AgentResponse{}, &RunError{Class: FailureProcess, Err: errors.New("unreachable runtime state")}
+}
+
+func validateWorkdir(req AgentRequest) error {
+	if strings.TrimSpace(req.Workdir) == "" {
+		return fmt.Errorf("isolated workdir is required")
+	}
+	info, err := os.Stat(req.Workdir)
+	if err != nil {
+		return fmt.Errorf("stat isolated workdir: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("isolated workdir %q is not a directory", req.Workdir)
+	}
+	if strings.TrimSpace(req.RunRoot) == "" {
+		return nil
+	}
+	inside, err := visibility.IsWithin(req.RunRoot, req.Workdir)
+	if err != nil {
+		return fmt.Errorf("validate workdir against run root: %w", err)
+	}
+	if inside {
+		return fmt.Errorf("workdir %q must be outside full run root %q", req.Workdir, req.RunRoot)
+	}
+	return nil
 }
 
 func requestContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
