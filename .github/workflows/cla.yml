@@ -42,4 +42,4 @@ jobs:
           path-to-document: ${{ github.server_url }}/${{ github.repository }}/blob/main/docs/CLA.md
           path-to-signatures: signatures/cla.json
           branch: cla-signatures
-          allowlist: dependabot,dependabot[bot],github-actions[bot]
+          allowlist: ShenJun93,dependabot,dependabot[bot],github-actions[bot]
