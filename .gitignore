@@ -1,0 +1,22 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+
+# Council runtime artifacts
+.council/runs/
+tmp/
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
