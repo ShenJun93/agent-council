@@ -68,18 +68,42 @@ func TestClaudeRuntimePreflightsThenRunsHeadless(t *testing.T) {
 		t.Fatalf("auth args = %#v, want %#v", got, want)
 	}
 	if got, want := runner.specs[1].Args, []string{
-		"--bare",
+		"--setting-sources", "",
+		"--settings", `{"autoMemoryEnabled":false}`,
 		"--tools", "",
 		"--strict-mcp-config",
 		"--disallowedTools", "mcp__*",
 		"--disable-slash-commands",
 		"--no-session-persistence",
+		"--no-chrome",
 		"--system-prompt", "You are an Agent Council participant. Use only the context in the user prompt. Do not access files, tools, plugins, skills, MCP servers, browsers, or prior sessions.",
 		"-p", "analyze independently",
 		"--output-format", "text",
 		"--permission-mode", "plan",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run args = %#v, want %#v", got, want)
+	}
+}
+
+func TestClaudeRuntimeDoesNotUseBareWithSubscriptionAuth(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeProcessRunner{results: []processResult{
+		{Stdout: `{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"pro"}`, ExitCode: 0},
+		{Stdout: "ok\n", ExitCode: 0},
+	}}
+	rt := newClaudeCLI("claude", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+
+	if _, err := rt.Run(context.Background(), isolatedRequest(t, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.specs) != 2 {
+		t.Fatalf("process calls = %d, want 2", len(runner.specs))
+	}
+	for _, arg := range runner.specs[1].Args {
+		if arg == "--bare" {
+			t.Fatal("Claude subscription runtime must not use --bare because bare mode skips OAuth/keychain auth")
+		}
 	}
 }
 
@@ -120,6 +144,24 @@ func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T
 	}
 	if runner.specs[1].Dir != req.Workdir {
 		t.Fatalf("run dir = %q, want %q", runner.specs[1].Dir, req.Workdir)
+	}
+}
+
+func TestCodexRuntimeAcceptsChatGPTStatusFromStderr(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeProcessRunner{results: []processResult{
+		{Stderr: "Logged in using ChatGPT\n", ExitCode: 0},
+		{Stdout: "answer\n", ExitCode: 0},
+	}}
+	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+
+	resp, err := rt.Run(context.Background(), isolatedRequest(t, "review"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Provider != ProviderCodex || resp.Stdout != "answer\n" {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
 
