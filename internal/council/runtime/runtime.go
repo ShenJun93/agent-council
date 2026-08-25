@@ -290,15 +290,15 @@ func validateWorkdir(req AgentRequest) error {
 	if strings.TrimSpace(req.Workdir) == "" {
 		return fmt.Errorf("isolated workdir is required")
 	}
+	if strings.TrimSpace(req.RunRoot) == "" {
+		return fmt.Errorf("full run root is required for isolation validation")
+	}
 	info, err := os.Stat(req.Workdir)
 	if err != nil {
 		return fmt.Errorf("stat isolated workdir: %w", err)
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("isolated workdir %q is not a directory", req.Workdir)
-	}
-	if strings.TrimSpace(req.RunRoot) == "" {
-		return nil
 	}
 	inside, err := visibility.IsWithin(req.RunRoot, req.Workdir)
 	if err != nil {
