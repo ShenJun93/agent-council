@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -158,6 +160,44 @@ func TestRuntimeDoesNotRetryQuotaFailure(t *testing.T) {
 	}
 	if len(runner.specs) != 2 {
 		t.Fatalf("process calls = %d, want auth + one attempt", len(runner.specs))
+	}
+}
+
+func TestRuntimeRejectsEmptyWorkdirBeforeSpawning(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeProcessRunner{}
+	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
+
+	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Class != FailureIsolation {
+		t.Fatalf("Run() error = %v, want isolation failure", err)
+	}
+	if len(runner.specs) != 0 {
+		t.Fatalf("spawned %d processes with empty workdir", len(runner.specs))
+	}
+}
+
+func TestRuntimeRejectsWorkdirInsideFullRunRoot(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	runRoot := filepath.Join(base, "run")
+	workdir := filepath.Join(runRoot, "participant")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeProcessRunner{}
+	rt := newClaudeCLI("claude", runner, func() []string { return []string{"PATH=/bin"} })
+	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", RunRoot: runRoot, Workdir: workdir})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Class != FailureIsolation {
+		t.Fatalf("Run() error = %v, want isolation failure", err)
+	}
+	if len(runner.specs) != 0 {
+		t.Fatalf("spawned %d processes inside full run root", len(runner.specs))
 	}
 }
 
