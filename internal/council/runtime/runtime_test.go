@@ -55,12 +55,23 @@ func TestClaudeRuntimePreflightsThenRunsHeadless(t *testing.T) {
 	if got, want := runner.specs[0].Args, []string{"auth", "status", "--json"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("auth args = %#v, want %#v", got, want)
 	}
-	if got, want := runner.specs[1].Args, []string{"-p", "analyze independently", "--output-format", "text", "--permission-mode", "plan"}; !reflect.DeepEqual(got, want) {
+	if got, want := runner.specs[1].Args, []string{
+		"--bare",
+		"--tools", "",
+		"--strict-mcp-config",
+		"--disallowedTools", "mcp__*",
+		"--disable-slash-commands",
+		"--no-session-persistence",
+		"--system-prompt", "You are an Agent Council participant. Use only the context in the user prompt. Do not access files, tools, plugins, skills, MCP servers, browsers, or prior sessions.",
+		"-p", "analyze independently",
+		"--output-format", "text",
+		"--permission-mode", "plan",
+	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run args = %#v, want %#v", got, want)
 	}
 }
 
-func TestCodexRuntimeRequiresChatGPTAndUsesReadOnlyEphemeralExec(t *testing.T) {
+func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeProcessRunner{results: []processResult{
@@ -80,7 +91,18 @@ func TestCodexRuntimeRequiresChatGPTAndUsesReadOnlyEphemeralExec(t *testing.T) {
 	if got, want := runner.specs[0].Args, []string{"login", "status"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("auth args = %#v, want %#v", got, want)
 	}
-	if got, want := runner.specs[1].Args, []string{"exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "review"}; !reflect.DeepEqual(got, want) {
+	if got, want := runner.specs[1].Args, []string{
+		"exec",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--ignore-user-config",
+		"--ignore-rules",
+		"--strict-config",
+		"-c", `default_permissions="council"`,
+		"-c", `permissions.council.filesystem={":root"="deny",":minimal"="read",":workspace_roots"={"."="read"}}`,
+		"-c", `agents.enabled=false`,
+		"review",
+	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run args = %#v, want %#v", got, want)
 	}
 	if runner.specs[1].Dir != workdir {
