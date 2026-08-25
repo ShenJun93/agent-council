@@ -43,9 +43,9 @@ type ProviderReport struct {
 }
 
 type Report struct {
-	Gate                Gate             `json:"gate"`
-	Providers           []ProviderReport `json:"providers"`
-	SentinelForTesting  string           `json:"-"`
+	Gate               Gate             `json:"gate"`
+	Providers          []ProviderReport `json:"providers"`
+	SentinelForTesting string           `json:"-"`
 }
 
 func RunIsolation(ctx context.Context, probes []Probe) (Report, error) {
