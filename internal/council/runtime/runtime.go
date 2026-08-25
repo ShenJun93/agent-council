@@ -149,7 +149,7 @@ type cliRuntime struct {
 	environ   func() []string
 	authArgs  []string
 	runArgs   func(AgentRequest) []string
-	checkAuth func(string) error
+	checkAuth func(stdout, stderr string) error
 }
 
 func NewClaudeCLI(binary string) AgentRuntime {
@@ -172,19 +172,21 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		authArgs: []string{"auth", "status", "--json"},
 		runArgs: func(req AgentRequest) []string {
 			return []string{
-				"--bare",
+				"--setting-sources", "",
+				"--settings", `{"autoMemoryEnabled":false}`,
 				"--tools", "",
 				"--strict-mcp-config",
 				"--disallowedTools", "mcp__*",
 				"--disable-slash-commands",
 				"--no-session-persistence",
+				"--no-chrome",
 				"--system-prompt", claudeCouncilSystemPrompt,
 				"-p", req.Prompt,
 				"--output-format", "text",
 				"--permission-mode", "plan",
 			}
 		},
-		checkAuth: func(stdout string) error {
+		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
 		},
 	}
@@ -214,7 +216,9 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 				req.Prompt,
 			}
 		},
-		checkAuth: preflight.ValidateCodexAuth,
+		checkAuth: func(stdout, stderr string) error {
+			return preflight.ValidateCodexAuth(stdout + "\n" + stderr)
+		},
 	}
 }
 
@@ -253,7 +257,7 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 		}
 		return AgentResponse{}, &RunError{Class: class, Err: processError("auth preflight", auth)}
 	}
-	if err := r.checkAuth(auth.Stdout); err != nil {
+	if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureAuth, Err: err}
 	}
 
