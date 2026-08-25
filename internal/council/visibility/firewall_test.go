@@ -33,7 +33,7 @@ func TestMaterializeResearcherOnlyGetsGrantedArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
+	cleanupWorkspace(t, workspace)
 
 	mustExist(t, filepath.Join(workspace.Root, "inputs", "problem.md"))
 	mustExist(t, filepath.Join(workspace.Root, "reports", "a.json"))
@@ -68,7 +68,7 @@ func TestBlindReviewDoesNotExposePeerReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
+	cleanupWorkspace(t, workspace)
 
 	mustExist(t, filepath.Join(workspace.Root, "problem.md"))
 	mustExist(t, filepath.Join(workspace.Root, "target", "report.json"))
@@ -95,7 +95,7 @@ func TestMaterializeFailsClosedWithoutGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
+	cleanupWorkspace(t, workspace)
 
 	mustNotExist(t, filepath.Join(workspace.Root, "secret.json"))
 	if len(workspace.VisibleArtifactIDs) != 0 {
@@ -130,7 +130,7 @@ func TestJudgeWorkspaceDoesNotMaterializeProviderMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
+	cleanupWorkspace(t, workspace)
 
 	var materialized strings.Builder
 	err = filepath.WalkDir(workspace.Root, func(path string, d os.DirEntry, walkErr error) error {
@@ -220,7 +220,7 @@ func TestWorkspaceIsOutsideFullRunRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer workspace.Cleanup()
+	cleanupWorkspace(t, workspace)
 
 	inside, err := IsWithin(runRoot, workspace.Root)
 	if err != nil {
@@ -229,6 +229,15 @@ func TestWorkspaceIsOutsideFullRunRoot(t *testing.T) {
 	if inside {
 		t.Fatalf("workspace %q is inside run root %q", workspace.Root, runRoot)
 	}
+}
+
+func cleanupWorkspace(t *testing.T, workspace Workspace) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := workspace.Cleanup(); err != nil {
+			t.Errorf("cleanup workspace: %v", err)
+		}
+	})
 }
 
 func mustExist(t *testing.T, path string) {
