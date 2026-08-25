@@ -2,7 +2,9 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -12,12 +14,13 @@ import (
 )
 
 type fakeRuntime struct {
-	provider       councilruntime.Provider
-	leak           bool
-	err            error
-	errAfterOutput error
-	secret         string
-	requests       []councilruntime.AgentRequest
+	provider            councilruntime.Provider
+	leak                bool
+	err                 error
+	errAfterOutput      error
+	errorIncludesSecret bool
+	secret              string
+	requests            []councilruntime.AgentRequest
 }
 
 func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (councilruntime.AgentResponse, error) {
@@ -42,6 +45,9 @@ func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (c
 	}
 
 	response := councilruntime.AgentResponse{Provider: f.provider, Stdout: stdout, ExitCode: 0, Attempts: 1}
+	if f.errorIncludesSecret {
+		return response, fmt.Errorf("runtime failed after exposing %s", f.secret)
+	}
 	return response, f.errAfterOutput
 }
 
@@ -116,6 +122,36 @@ func TestIsolationDoctorRecordsLeakEvenWhenRuntimeReturnsError(t *testing.T) {
 	}
 	if report.Providers[0].Error == "" {
 		t.Fatal("runtime failure was not recorded alongside leak")
+	}
+}
+
+func TestIsolationDoctorRedactsSentinelFromRuntimeErrors(t *testing.T) {
+	t.Parallel()
+
+	leaking := &fakeRuntime{
+		provider:            councilruntime.ProviderCodex,
+		errorIncludesSecret: true,
+	}
+	report, err := RunIsolation(context.Background(), []Probe{{Name: "codex", Runtime: leaking}})
+	if err == nil {
+		t.Fatal("RunIsolation() returned nil error for a sentinel-bearing runtime error")
+	}
+	if !report.Providers[0].SecretLeak {
+		t.Fatalf("sentinel in runtime error was not classified as a leak: %+v", report.Providers[0])
+	}
+	if leaking.secret == "" {
+		t.Fatal("fake runtime did not capture sentinel")
+	}
+
+	encoded, marshalErr := json.Marshal(report)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if strings.Contains(string(encoded), leaking.secret) {
+		t.Fatalf("sentinel leaked into JSON report: %s", encoded)
+	}
+	if strings.Contains(err.Error(), leaking.secret) {
+		t.Fatalf("sentinel leaked into returned error: %v", err)
 	}
 }
 
