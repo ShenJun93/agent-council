@@ -25,6 +25,20 @@ func (f *fakeProcessRunner) Run(_ context.Context, spec processSpec) processResu
 	return result
 }
 
+func isolatedRequest(t *testing.T, prompt string) AgentRequest {
+	t.Helper()
+	base := t.TempDir()
+	runRoot := filepath.Join(base, "run")
+	workdir := filepath.Join(base, "workspace")
+	if err := os.MkdirAll(runRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return AgentRequest{Prompt: prompt, RunRoot: runRoot, Workdir: workdir}
+}
+
 func TestClaudeRuntimePreflightsThenRunsHeadless(t *testing.T) {
 	t.Parallel()
 
@@ -33,16 +47,14 @@ func TestClaudeRuntimePreflightsThenRunsHeadless(t *testing.T) {
 		{Stdout: "answer\n", ExitCode: 0},
 	}}
 	rt := newClaudeCLI("claude", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+	req := isolatedRequest(t, "analyze independently")
+	req.RunID = "run-1"
+	req.Participant = "researcher-a"
+	req.Role = "researcher"
+	req.Phase = "research"
+	req.Timeout = time.Second
 
-	resp, err := rt.Run(context.Background(), AgentRequest{
-		RunID:       "run-1",
-		Participant: "researcher-a",
-		Role:        "researcher",
-		Phase:       "research",
-		Prompt:      "analyze independently",
-		Workdir:     t.TempDir(),
-		Timeout:     time.Second,
-	})
+	resp, err := rt.Run(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +91,10 @@ func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T
 		{Stdout: "answer\n", ExitCode: 0},
 	}}
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
-	workdir := t.TempDir()
+	req := isolatedRequest(t, "review")
+	req.Timeout = time.Second
 
-	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "review", Workdir: workdir, Timeout: time.Second})
+	_, err := rt.Run(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +118,8 @@ func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("run args = %#v, want %#v", got, want)
 	}
-	if runner.specs[1].Dir != workdir {
-		t.Fatalf("run dir = %q, want %q", runner.specs[1].Dir, workdir)
+	if runner.specs[1].Dir != req.Workdir {
+		t.Fatalf("run dir = %q, want %q", runner.specs[1].Dir, req.Workdir)
 	}
 }
 
@@ -118,7 +131,7 @@ func TestRuntimeFailsClosedBeforeAuthWhenMeteredCredentialExists(t *testing.T) {
 		return []string{"PATH=/bin", "ANTHROPIC_API_KEY=secret"}
 	})
 
-	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", Workdir: t.TempDir()})
+	_, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Class != FailureBillingPolicyViolation {
 		t.Fatalf("Run() error = %v, want billing policy violation", err)
@@ -134,7 +147,7 @@ func TestRuntimeRejectsWrongAuthMode(t *testing.T) {
 	runner := &fakeProcessRunner{results: []processResult{{Stdout: "Logged in using an API key\n", ExitCode: 0}}}
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
 
-	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", Workdir: t.TempDir()})
+	_, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Class != FailureAuth {
 		t.Fatalf("Run() error = %v, want auth failure", err)
@@ -154,7 +167,7 @@ func TestRuntimeRetriesProcessFailureOnce(t *testing.T) {
 	}}
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
 
-	resp, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", Workdir: t.TempDir()})
+	resp, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +188,7 @@ func TestRuntimeDoesNotRetryQuotaFailure(t *testing.T) {
 	}}
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
 
-	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", Workdir: t.TempDir()})
+	_, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Class != FailureQuotaExhausted {
 		t.Fatalf("Run() error = %v, want quota exhausted", err)
@@ -191,7 +204,7 @@ func TestRuntimeRejectsEmptyWorkdirBeforeSpawning(t *testing.T) {
 	runner := &fakeProcessRunner{}
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
 
-	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x"})
+	_, err := rt.Run(context.Background(), AgentRequest{Prompt: "x", RunRoot: t.TempDir()})
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Class != FailureIsolation {
 		t.Fatalf("Run() error = %v, want isolation failure", err)
