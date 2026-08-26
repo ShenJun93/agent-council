@@ -56,7 +56,7 @@ func TestRunnerExecutesFrozenH1InManifestOrder(t *testing.T) {
 	}
 
 	result, err := runner.Run(context.Background(), RunRequest{
-		Dataset: dataset,
+		Dataset:  dataset,
 		RunsRoot: t.TempDir(),
 		RunID:    "h1-runner-test",
 	})
