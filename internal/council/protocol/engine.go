@@ -45,14 +45,13 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 		return Result{}, fmt.Errorf("challenger provider must be explicitly set to claude or codex")
 	}
 
-	problemArtifact := visibility.Artifact{
+	artifacts := []visibility.Artifact{{
 		ID:           "problem",
 		RelativePath: "context/problem.json",
 		Content:      problem,
-	}
-	artifacts := []visibility.Artifact{problemArtifact}
+	}}
 
-	researchPair, err := parallel2(ctx,
+	research, err := parallel2(ctx,
 		func(callCtx context.Context) (ResearchArtifact, error) {
 			var out ResearchArtifact
 			err := e.invokeJSON(callCtx, req, e.Claude, "researcher-1", "researcher", PhaseResearch, artifacts, []string{"problem"}, researchInstruction(), &out)
@@ -67,23 +66,20 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("research phase: %w", err)
 	}
-	for i := range researchPair {
-		if err := validateResearch(researchPair[i]); err != nil {
+	for i := range research {
+		if err := validateResearch(research[i]); err != nil {
 			return Result{}, malformed("research", err)
 		}
 	}
-
-	research1Artifact, err := visibilityJSONArtifact("research-1", "context/research-1.json", researchPair[0])
+	artifacts, err = appendJSONArtifacts(artifacts,
+		jsonArtifactSpec{id: "research-1", path: "context/research-1.json", value: research[0]},
+		jsonArtifactSpec{id: "research-2", path: "context/research-2.json", value: research[1]},
+	)
 	if err != nil {
 		return Result{}, err
 	}
-	research2Artifact, err := visibilityJSONArtifact("research-2", "context/research-2.json", researchPair[1])
-	if err != nil {
-		return Result{}, err
-	}
-	artifacts = append(artifacts, research1Artifact, research2Artifact)
 
-	reviewPair, err := parallel2(ctx,
+	reviews, err := parallel2(ctx,
 		func(callCtx context.Context) (ReviewArtifact, error) {
 			var out ReviewArtifact
 			err := e.invokeJSON(callCtx, req, e.Claude, "reviewer-1", "reviewer", PhaseReview, artifacts, []string{"problem", "research-2"}, reviewInstruction(), &out)
@@ -98,23 +94,20 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("review phase: %w", err)
 	}
-	for i := range reviewPair {
-		if err := validateReview(reviewPair[i]); err != nil {
+	for i := range reviews {
+		if err := validateReview(reviews[i]); err != nil {
 			return Result{}, malformed("review", err)
 		}
 	}
-
-	review1Artifact, err := visibilityJSONArtifact("review-1", "context/review-1.json", reviewPair[0])
+	artifacts, err = appendJSONArtifacts(artifacts,
+		jsonArtifactSpec{id: "review-1", path: "context/review-1.json", value: reviews[0]},
+		jsonArtifactSpec{id: "review-2", path: "context/review-2.json", value: reviews[1]},
+	)
 	if err != nil {
 		return Result{}, err
 	}
-	review2Artifact, err := visibilityJSONArtifact("review-2", "context/review-2.json", reviewPair[1])
-	if err != nil {
-		return Result{}, err
-	}
-	artifacts = append(artifacts, review1Artifact, review2Artifact)
 
-	challengeDecision := e.challengeDecision(researchPair)
+	challengeDecision := e.challengeDecision(research)
 	challengeRuntime := e.Claude
 	if e.ChallengerProvider == councilruntime.ProviderCodex {
 		challengeRuntime = e.Codex
@@ -137,13 +130,14 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 	if err := validateChallenge(challenge); err != nil {
 		return Result{}, malformed("challenge", err)
 	}
-	challengeArtifact, err := visibilityJSONArtifact("challenge", "context/challenge.json", challenge)
+	artifacts, err = appendJSONArtifacts(artifacts,
+		jsonArtifactSpec{id: "challenge", path: "context/challenge.json", value: challenge},
+	)
 	if err != nil {
 		return Result{}, err
 	}
-	artifacts = append(artifacts, challengeArtifact)
 
-	rebuttalPair, err := parallel2(ctx,
+	rebuttals, err := parallel2(ctx,
 		func(callCtx context.Context) (RebuttalArtifact, error) {
 			var out RebuttalArtifact
 			err := e.invokeJSON(callCtx, req, e.Claude, "researcher-1", "researcher", PhaseRebuttal, artifacts, []string{"problem", "research-1", "review-2", "challenge"}, rebuttalInstruction(), &out)
@@ -158,21 +152,18 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("rebuttal phase: %w", err)
 	}
-	for i := range rebuttalPair {
-		if err := validateRebuttal(rebuttalPair[i]); err != nil {
+	for i := range rebuttals {
+		if err := validateRebuttal(rebuttals[i]); err != nil {
 			return Result{}, malformed("rebuttal", err)
 		}
 	}
-
-	rebuttal1Artifact, err := visibilityJSONArtifact("rebuttal-1", "context/rebuttal-1.json", rebuttalPair[0])
+	artifacts, err = appendJSONArtifacts(artifacts,
+		jsonArtifactSpec{id: "rebuttal-1", path: "context/rebuttal-1.json", value: rebuttals[0]},
+		jsonArtifactSpec{id: "rebuttal-2", path: "context/rebuttal-2.json", value: rebuttals[1]},
+	)
 	if err != nil {
 		return Result{}, err
 	}
-	rebuttal2Artifact, err := visibilityJSONArtifact("rebuttal-2", "context/rebuttal-2.json", rebuttalPair[1])
-	if err != nil {
-		return Result{}, err
-	}
-	artifacts = append(artifacts, rebuttal1Artifact, rebuttal2Artifact)
 
 	judgeAllowed := []string{
 		"problem",
@@ -184,7 +175,7 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 		"rebuttal-1",
 		"rebuttal-2",
 	}
-	judgePair, err := parallel2(ctx,
+	judges, err := parallel2(ctx,
 		func(callCtx context.Context) (JudgeArtifact, error) {
 			var out JudgeArtifact
 			err := e.invokeJSON(callCtx, req, e.Claude, "judge-1", "judge", PhaseJudge, artifacts, judgeAllowed, judgeInstruction(), &out)
@@ -199,33 +190,32 @@ func (e Engine) Run(ctx context.Context, req RunRequest) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("judge phase: %w", err)
 	}
-	for i := range judgePair {
-		if err := validateJudge(judgePair[i]); err != nil {
+	for i := range judges {
+		if err := validateJudge(judges[i]); err != nil {
 			return Result{}, malformed("judge", err)
 		}
 	}
 
-	decision := buildDecision(judgePair)
 	return Result{
 		Research: []ResearchRecord{
-			{ID: "research-1", Artifact: researchPair[0]},
-			{ID: "research-2", Artifact: researchPair[1]},
+			{ID: "research-1", Artifact: research[0]},
+			{ID: "research-2", Artifact: research[1]},
 		},
 		Reviews: []ReviewRecord{
-			{ID: "review-1", TargetID: "research-2", Artifact: reviewPair[0]},
-			{ID: "review-2", TargetID: "research-1", Artifact: reviewPair[1]},
+			{ID: "review-1", TargetID: "research-2", Artifact: reviews[0]},
+			{ID: "review-2", TargetID: "research-1", Artifact: reviews[1]},
 		},
 		ChallengeDecision: challengeDecision,
 		Challenge:         ChallengeRecord{ID: "challenge", Artifact: challenge},
 		Rebuttals: []RebuttalRecord{
-			{ID: "rebuttal-1", TargetID: "research-1", Artifact: rebuttalPair[0]},
-			{ID: "rebuttal-2", TargetID: "research-2", Artifact: rebuttalPair[1]},
+			{ID: "rebuttal-1", TargetID: "research-1", Artifact: rebuttals[0]},
+			{ID: "rebuttal-2", TargetID: "research-2", Artifact: rebuttals[1]},
 		},
 		Judges: []JudgeRecord{
-			{ID: "judge-1", Artifact: judgePair[0]},
-			{ID: "judge-2", Artifact: judgePair[1]},
+			{ID: "judge-1", Artifact: judges[0]},
+			{ID: "judge-2", Artifact: judges[1]},
 		},
-		Decision: decision,
+		Decision: buildDecision(judges),
 	}, nil
 }
 
@@ -287,20 +277,7 @@ func (e Engine) invokeJSON(
 	if cleanupErr != nil {
 		return &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: fmt.Errorf("clean isolated workspace: %w", cleanupErr)}
 	}
-
-	decoder := json.NewDecoder(strings.NewReader(response.Stdout))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(out); err != nil {
-		return malformed(phase, fmt.Errorf("decode JSON output: %w", err))
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return malformed(phase, fmt.Errorf("multiple JSON values in output"))
-		}
-		return malformed(phase, fmt.Errorf("trailing output: %w", err))
-	}
-	return nil
+	return decodeStrictJSON(phase, response.Stdout, out)
 }
 
 func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifact, allowedIDs []string, instruction string) (string, error) {
@@ -319,8 +296,7 @@ func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifac
 		if !ok {
 			return "", fmt.Errorf("allowed artifact %q is missing", id)
 		}
-		path := filepath.Join(workspace.Root, artifact.RelativePath)
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(filepath.Join(workspace.Root, artifact.RelativePath))
 		if err != nil {
 			return "", fmt.Errorf("read materialized artifact %q: %w", id, err)
 		}
@@ -328,10 +304,26 @@ func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifac
 		b.WriteString(id)
 		b.WriteString(" ---\n")
 		b.Write(content)
-		b.WriteString("\n")
+		b.WriteByte('\n')
 	}
 	b.WriteString("VISIBLE_ARTIFACTS_END\n")
 	return b.String(), nil
+}
+
+func decodeStrictJSON(phase, raw string, out any) error {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(out); err != nil {
+		return malformed(phase, fmt.Errorf("decode JSON output: %w", err))
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return malformed(phase, fmt.Errorf("multiple JSON values in output"))
+		}
+		return malformed(phase, fmt.Errorf("trailing output: %w", err))
+	}
+	return nil
 }
 
 func validateNormalizedProblem(raw json.RawMessage) ([]byte, error) {
@@ -343,7 +335,7 @@ func validateNormalizedProblem(raw json.RawMessage) ([]byte, error) {
 	if err := decoder.Decode(&object); err != nil {
 		return nil, fmt.Errorf("normalized problem must be a JSON object: %w", err)
 	}
-	if object == nil || len(object) == 0 {
+	if len(object) == 0 {
 		return nil, fmt.Errorf("normalized problem must be a non-empty JSON object")
 	}
 	var trailing any
@@ -357,12 +349,21 @@ func validateNormalizedProblem(raw json.RawMessage) ([]byte, error) {
 	return compact.Bytes(), nil
 }
 
-func visibilityJSONArtifact(id, path string, value any) (visibility.Artifact, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return visibility.Artifact{}, fmt.Errorf("marshal artifact %q: %w", id, err)
+type jsonArtifactSpec struct {
+	id    string
+	path  string
+	value any
+}
+
+func appendJSONArtifacts(artifacts []visibility.Artifact, specs ...jsonArtifactSpec) ([]visibility.Artifact, error) {
+	for _, spec := range specs {
+		data, err := json.Marshal(spec.value)
+		if err != nil {
+			return nil, fmt.Errorf("marshal artifact %q: %w", spec.id, err)
+		}
+		artifacts = append(artifacts, visibility.Artifact{ID: spec.id, RelativePath: spec.path, Content: data})
 	}
-	return visibility.Artifact{ID: id, RelativePath: path, Content: data}, nil
+	return artifacts, nil
 }
 
 func parallel2[T any](ctx context.Context, first, second func(context.Context) (T, error)) ([2]T, error) {
@@ -381,7 +382,7 @@ func parallel2[T any](ctx context.Context, first, second func(context.Context) (
 	}()
 
 	var firstErr error
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		result := <-results
 		values[result.index] = result.value
 		if result.err != nil && firstErr == nil {
