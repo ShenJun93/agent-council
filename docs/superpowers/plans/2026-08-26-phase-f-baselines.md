@@ -4,57 +4,50 @@
 
 **Goal:** Implement the frozen A–F baseline arms so H1 can compare single-agent, self-review, full-information multi-agent, and blind Council outputs without changing provider/runtime isolation.
 
-**Architecture:** Add a small `baseline` package that executes A–D directly through isolated workspaces and delegates E/F to the existing protocol engine. Extend the protocol engine with an explicit visibility mode whose zero value remains blind; the full-info mode changes only which already-produced artifacts are materialized to later phases, preserving the same 9-call phase/call budget. Baseline outputs are structured wrappers suitable for the Phase G evaluation harness.
+**Architecture:** Add a small `baseline` package that executes A–D directly through isolated workspaces and delegates E/F to protocol runners. Keep the existing blind `protocol.Engine` unchanged; implement E as a separate `protocol.FullInfoEngine` comparator that reuses the same internal invocation/firewall helpers while changing only which already-produced peer artifacts are visible. Both E and F preserve the same 9-call provider/phase budget.
 
 **Tech Stack:** Go 1.26.x, existing `runtime.AgentRuntime`, `visibility.Materialize`, `protocol.Engine`, standard library JSON.
 
-**Spec:** Issue #7 plus frozen Phase F decision: baseline E uses the same phase/call budget as Blind Council but removes inter-agent blindness so all appropriate prior phase artifacts are visible.
+**Spec:** Issue #7 plus frozen Phase F decision: baseline E uses the same phase/call budget as Blind Council but removes inter-agent blindness so all appropriate prior artifacts are visible.
 
 ## Global Constraints
 
 - Subscription-only Claude Code + Codex CLI; no metered fallback.
 - All agent invocations use isolated workspaces outside the full run root.
-- Blind Council behavior must remain unchanged by default.
+- Blind Council behavior remains unchanged.
 - Baseline E differs from F by visibility policy, not call budget or provider roster.
 - Arms are fixed: A Claude single, B Codex single, C Claude self-review, D Codex self-review, E full-info Claude+Codex, F blind Council.
 - No generic orchestration framework, database, dashboard, mailbox, or new runtime abstraction.
 
 ---
 
-### Task 1: Freeze protocol visibility behavior with RED tests
+### Task 1: Full-information protocol comparator
 
 **Files:**
 - Create: `internal/council/protocol/engine_visibility_test.go`
-- Modify: `internal/council/protocol/types.go`
-- Modify: `internal/council/protocol/engine.go`
+- Create: `internal/council/protocol/fullinfo.go`
 
 **Interfaces:**
-- Produces: `type VisibilityMode string`, `VisibilityBlind`, `VisibilityFullInfo`, and `Engine.VisibilityMode`.
-- Full-info mode retains independent research but gives each review/rebuttal invocation all appropriate already-produced peer artifacts; judges keep their existing complete content view.
+- Produces: `protocol.FullInfoEngine` wrapping the existing `protocol.Engine` configuration.
+- Full-info retains independent research, gives each reviewer both research reports, gives each rebuttal both research reports and both reviews, and retains the same challenge/judge inputs and 9-call budget.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create a protocol test that runs the existing fake Claude/Codex runtimes with `VisibilityFullInfo` and asserts both review prompts contain both research reports, both rebuttal prompts contain both research reports and both reviews, the total call count remains 9, and every invocation gets a fresh workspace outside the run root. Existing blind tests must continue asserting exactly one target report is visible to each reviewer.
+Assert both full-info review prompts contain both research reports, both rebuttal prompts contain all prior peer artifacts, total runtime calls remain 9, and every invocation gets a fresh workspace outside the run root.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Verify RED**
 
-Run: `go test ./internal/council/protocol`
-Expected: FAIL because `VisibilityFullInfo` / `Engine.VisibilityMode` do not exist.
+Observed CI failure before production implementation because the full-info protocol API did not exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
-Add the visibility enum and route the allowed artifact IDs through one helper. Keep the zero value blind. Do not alter research visibility; do not expose provenance/provider identity.
+Implemented `FullInfoEngine` without modifying the existing blind engine or runtime/isolation boundary.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Verify GREEN**
 
-Run: `go test ./internal/council/protocol`
-Expected: PASS.
+Observed exact-head CI success for gofmt, tests, vet, and lint after `FullInfoEngine` implementation.
 
-- [ ] **Step 5: Commit**
-
-Commit message: `feat: add full-info protocol visibility mode`.
-
-### Task 2: Implement A–F baseline runner with RED tests
+### Task 2: A–F baseline runner
 
 **Files:**
 - Create: `internal/council/baseline/runner_test.go`
@@ -65,53 +58,42 @@ Commit message: `feat: add full-info protocol visibility mode`.
 - Produces: `Arm` constants `A` through `F`, `AnswerArtifact`, `ArmResult`, `RunRequest`, `Runner.RunArm`, and `Runner.RunAll`.
 - A/B: one isolated final-answer invocation on Claude/Codex.
 - C/D: one isolated draft invocation plus one fresh isolated self-review invocation on the same provider.
-- E: `protocol.Engine` with `VisibilityFullInfo`.
-- F: `protocol.Engine` with default blind visibility.
+- E: `protocol.FullInfoEngine`.
+- F: existing blind `protocol.Engine`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Test exact call budgets/provider routing (A=1 Claude, B=1 Codex, C=2 Claude, D=2 Codex, E=9 total, F=9 total), fresh workdirs for every call, self-review prompt sees its own draft, E review prompts see both research reports, and F review prompts remain blind.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Verify RED**
 
-Run: `go test ./internal/council/baseline`
-Expected: FAIL because baseline package production types/functions are missing.
+Observed gofmt-clean CI failure before production implementation on missing baseline types/functions.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
-Use `visibility.Materialize` for A–D and strict JSON decoding with malformed-output classification. Delegate E/F to `protocol.Engine`; do not duplicate the nine-phase protocol.
+Use `visibility.Materialize` for A–D with strict JSON decoding and malformed-output classification. Delegate E/F to the full-info/blind protocol engines.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Verify GREEN**
 
-Run: `go test ./internal/council/baseline ./internal/council/protocol`
-Expected: PASS.
+Repository CI must be green on the final exact head before merge.
 
-- [ ] **Step 5: Commit**
-
-Commit message: `feat: implement Phase F baseline arms`.
-
-### Task 3: Verify repository quality and PR gate
+### Task 3: PR gate
 
 **Files:**
 - Update: PR description only.
 
-**Interfaces:**
-- Consumes: Phase F implementation.
-- Produces: merge-ready Phase F branch with exact-head green `quality` and `cla` checks.
+- [ ] **Step 1: Verify exact-head repository quality**
 
-- [ ] **Step 1: Run repository verification**
-
-Run in CI: gofmt check, `go test ./...`, `go vet ./...`, golangci-lint.
-Expected: all pass.
+CI must pass gofmt, `go test ./...`, `go vet ./...`, and golangci-lint on the final head.
 
 - [ ] **Step 2: Confirm CLA**
 
-Expected: `cla` passes on the same exact head SHA.
+`cla` must pass on the same final head SHA.
 
 - [ ] **Step 3: Review diff for scope**
 
-Confirm only plan, protocol visibility support, and baseline files changed; no runtime/isolation weakening.
+Confirm only this plan, full-info comparator/tests, and baseline files changed; no runtime/isolation weakening.
 
 - [ ] **Step 4: Mark PR ready and squash merge**
 
-Use expected exact head SHA. Re-fetch PR and `main` after merge.
+Use the final exact head SHA, then re-fetch PR and `main` after merge.
