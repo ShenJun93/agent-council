@@ -20,15 +20,15 @@ func NormalizeCandidate(result baseline.ArmResult) (MaskedCandidate, error) {
 			return MaskedCandidate{}, fmt.Errorf("arm %s answer decision is required", result.Arm)
 		}
 		return MaskedCandidate{
-			Decision:    answer.Decision,
-			Action:      answer.Action,
-			Reasons:     cloneStrings(answer.Reasons),
-			Assumptions: cloneStrings(answer.Assumptions),
-			Risks:       cloneStrings(answer.Risks),
-			Citations:   cloneEvidenceRefs(answer.Citations),
-			Evidence:    []string{},
-			Minority:    []string{},
-			Unresolved:  []string{},
+			Decision:        answer.Decision,
+			Action:          answer.Action,
+			Reasons:         cloneStrings(answer.Reasons),
+			Assumptions:     cloneStrings(answer.Assumptions),
+			Risks:           cloneStrings(answer.Risks),
+			Citations:       cloneEvidenceRefs(answer.Citations),
+			Evidence:        []string{},
+			Minority:        []string{},
+			Unresolved:      []string{},
 			NextValidations: []string{},
 		}, nil
 	case baseline.ArmEFullInfo, baseline.ArmFBlindCouncil:
