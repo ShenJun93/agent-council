@@ -11,39 +11,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 )
 
 const h1OverallScoreRule = "overall_score is the arithmetic mean of the five equally weighted dimension scores"
 
 var h1CaseIDs = []string{
-	"tech-01-db-cutover",
-	"tech-02-api-rate-limits",
-	"tech-03-cache-stampede",
-	"tech-04-token-rotation",
-	"tech-05-queue-ordering",
-	"tech-06-backup-retention",
-	"tech-07-deploy-rollback",
-	"tech-08-observability-sampling",
-	"tech-09-search-build-buy",
-	"tech-10-data-reconciliation",
-	"product-01-pricing-tiers",
-	"product-02-onboarding-friction",
-	"product-03-notification-launch",
-	"product-04-enterprise-sso",
-	"product-05-marketplace-moderation",
-	"product-06-feature-deprecation",
-	"product-07-regional-expansion",
-	"product-08-experiment-guardrails",
-	"product-09-support-automation",
-	"product-10-roadmap-retention",
+	"tech-01-db-cutover", "tech-02-api-rate-limits", "tech-03-cache-stampede", "tech-04-token-rotation",
+	"tech-05-queue-ordering", "tech-06-backup-retention", "tech-07-deploy-rollback", "tech-08-observability-sampling",
+	"tech-09-search-build-buy", "tech-10-data-reconciliation", "product-01-pricing-tiers", "product-02-onboarding-friction",
+	"product-03-notification-launch", "product-04-enterprise-sso", "product-05-marketplace-moderation", "product-06-feature-deprecation",
+	"product-07-regional-expansion", "product-08-experiment-guardrails", "product-09-support-automation", "product-10-roadmap-retention",
 }
 
 var h1RubricDimensionIDs = []string{
-	"correctness_soundness",
-	"evidence_use",
-	"risk_handling",
-	"actionability",
-	"calibration",
+	"correctness_soundness", "evidence_use", "risk_handling", "actionability", "calibration",
 }
 
 type casesDocument struct {
@@ -99,9 +82,6 @@ type rubricDimension struct {
 
 func LoadH1(root string) (Dataset, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
-	if root == "" || root == "." && strings.TrimSpace(root) == "" {
-		return Dataset{}, fmt.Errorf("H1 dataset root is required")
-	}
 	info, err := os.Lstat(root)
 	if err != nil {
 		return Dataset{}, fmt.Errorf("stat H1 dataset root: %w", err)
@@ -146,13 +126,11 @@ func LoadH1(root string) (Dataset, error) {
 	}
 
 	cases := make([]Case, 0, H1CaseCount)
-	technical := 0
-	product := 0
 	seen := make(map[string]struct{}, H1CaseCount)
+	technical, product := 0, 0
 	for index, envelope := range document.Cases {
-		wantID := h1CaseIDs[index]
-		if envelope.ID != wantID {
-			return Dataset{}, fmt.Errorf("case order mismatch at global index %d: got %q want %q", index+1, envelope.ID, wantID)
+		if envelope.ID != h1CaseIDs[index] {
+			return Dataset{}, fmt.Errorf("case order mismatch at global index %d: got %q want %q", index+1, envelope.ID, h1CaseIDs[index])
 		}
 		if !safeDatasetID(envelope.ID) {
 			return Dataset{}, fmt.Errorf("unsafe case id %q", envelope.ID)
@@ -183,14 +161,14 @@ func LoadH1(root string) (Dataset, error) {
 			return Dataset{}, fmt.Errorf("case %q challenger %q, want %q for global index %d", envelope.ID, envelope.ChallengerProvider, wantChallenger, index+1)
 		}
 
-		problem, problemEvidenceIDs, err := validateProblem(envelope.ID, envelope.Problem)
+		problem, evidenceIDs, err := validateProblem(envelope.ID, envelope.Problem)
 		if err != nil {
 			return Dataset{}, err
 		}
 		if err := verifyDigest(envelope.ID+" problem", problem, envelope.ProblemSHA256); err != nil {
 			return Dataset{}, err
 		}
-		referenceSet, err := validateReferenceSet(envelope.ID, envelope.ReferenceSet, problemEvidenceIDs)
+		referenceSet, err := validateReferenceSet(envelope.ID, envelope.ReferenceSet, evidenceIDs)
 		if err != nil {
 			return Dataset{}, err
 		}
@@ -198,10 +176,14 @@ func LoadH1(root string) (Dataset, error) {
 			return Dataset{}, err
 		}
 
+		provider := councilruntime.ProviderClaude
+		if wantChallenger == "codex" {
+			provider = councilruntime.ProviderCodex
+		}
 		cases = append(cases, Case{
 			ID:                 envelope.ID,
 			Category:           envelope.Category,
-			ChallengerProvider: providerFromString(envelope.ChallengerProvider),
+			ChallengerProvider: provider,
 			Problem:            append(json.RawMessage(nil), problem...),
 			ProblemSHA256:      strings.ToLower(envelope.ProblemSHA256),
 			ReferenceSet:       append(json.RawMessage(nil), referenceSet...),
@@ -253,10 +235,7 @@ func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte) error {
 	if err := verifyDigest("rubric file", rubricBytes, manifest.RubricSHA256); err != nil {
 		return err
 	}
-	if err := verifyDigest("cases file", casesBytes, manifest.CasesSHA256); err != nil {
-		return err
-	}
-	return nil
+	return verifyDigest("cases file", casesBytes, manifest.CasesSHA256)
 }
 
 func validateRubric(raw []byte) error {
@@ -440,11 +419,4 @@ func safeDatasetID(id string) bool {
 		return false
 	}
 	return true
-}
-
-func providerFromString(provider string) councilruntime.Provider {
-	if provider == "claude" {
-		return councilruntime.ProviderClaude
-	}
-	return councilruntime.ProviderCodex
 }
