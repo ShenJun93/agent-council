@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,13 +29,13 @@ type fixtureCasesDocument struct {
 }
 
 type fixtureCase struct {
-	ID                     string          `json:"id"`
-	Category               string          `json:"category"`
-	ChallengerProvider     string          `json:"challenger_provider"`
-	Problem                json.RawMessage `json:"problem"`
-	ProblemSHA256          string          `json:"problem_sha256"`
-	ReferenceSet           json.RawMessage `json:"reference_set"`
-	ReferenceSetSHA256     string          `json:"reference_set_sha256"`
+	ID                 string          `json:"id"`
+	Category           string          `json:"category"`
+	ChallengerProvider string          `json:"challenger_provider"`
+	Problem            json.RawMessage `json:"problem"`
+	ProblemSHA256      string          `json:"problem_sha256"`
+	ReferenceSet       json.RawMessage `json:"reference_set"`
+	ReferenceSetSHA256 string          `json:"reference_set_sha256"`
 }
 
 var fixtureCaseIDs = []string{
@@ -246,11 +247,11 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 
 func digestCompact(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
-	var compact strings.Builder
+	var compact bytes.Buffer
 	if err := json.Compact(&compact, raw); err != nil {
 		t.Fatal(err)
 	}
-	return digestBytes([]byte(compact.String()))
+	return digestBytes(compact.Bytes())
 }
 
 func digestBytes(data []byte) string {
