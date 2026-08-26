@@ -163,11 +163,11 @@ func TestProblemSummaryDerivationUsesBestSingleBoundary(t *testing.T) {
 		t.Fatalf("summarizeProblem() error = %v", err)
 	}
 	want := ProblemSummary{
-		ProblemID:        "boundary",
-		BestSingleScore:  80,
-		CouncilScore:     75,
-		CouncilDelta:     -5,
-		MateriallyWorse:  true,
+		ProblemID:       "boundary",
+		BestSingleScore: 80,
+		CouncilScore:    75,
+		CouncilDelta:    -5,
+		MateriallyWorse: true,
 	}
 	if !reflect.DeepEqual(summary, want) {
 		t.Fatalf("problem summary = %+v, want %+v", summary, want)
