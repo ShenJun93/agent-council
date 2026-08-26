@@ -7,11 +7,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 	"strings"
 	"time"
 
 	"github.com/ShenJun93/agent-council/internal/council/preflight"
+	"github.com/ShenJun93/agent-council/internal/council/visibility"
 )
+
+const claudeCouncilSystemPrompt = "You are an Agent Council participant. Use only the context in the user prompt. Do not access files, tools, plugins, skills, MCP servers, browsers, or prior sessions."
+
+const codexCouncilFilesystemProfile = `permissions.council.filesystem={":root"="deny",":minimal"="read",":workspace_roots"={"."="read"}}`
 
 type Provider string
 
@@ -27,6 +33,7 @@ const (
 	FailureQuotaExhausted         FailureClass = "quota_exhausted"
 	FailureAuth                   FailureClass = "auth_failure"
 	FailureBillingPolicyViolation FailureClass = "billing_policy_violation"
+	FailureIsolation              FailureClass = "isolation_failure"
 	FailureProcess                FailureClass = "process_failure"
 	FailureMalformedOutput        FailureClass = "malformed_output"
 )
@@ -55,6 +62,7 @@ func (e *RunError) Unwrap() error {
 
 type AgentRequest struct {
 	RunID       string
+	RunRoot     string
 	Participant string
 	Role        string
 	Phase       string
@@ -140,9 +148,11 @@ type cliRuntime struct {
 	binary    string
 	runner    processRunner
 	environ   func() []string
+	goos      string
+	lookPath  func(string) (string, error)
 	authArgs  []string
 	runArgs   func(AgentRequest) []string
-	checkAuth func(string) error
+	checkAuth func(stdout, stderr string) error
 }
 
 func NewClaudeCLI(binary string) AgentRuntime {
@@ -162,11 +172,26 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		binary:   binary,
 		runner:   runner,
 		environ:  environ,
+		goos:     goruntime.GOOS,
+		lookPath: exec.LookPath,
 		authArgs: []string{"auth", "status", "--json"},
 		runArgs: func(req AgentRequest) []string {
-			return []string{"-p", req.Prompt, "--output-format", "text", "--permission-mode", "plan"}
+			return []string{
+				"--setting-sources", "",
+				"--settings", `{"autoMemoryEnabled":false}`,
+				"--tools", "",
+				"--strict-mcp-config",
+				"--disallowedTools", "mcp__*",
+				"--disable-slash-commands",
+				"--no-session-persistence",
+				"--no-chrome",
+				"--system-prompt", claudeCouncilSystemPrompt,
+				"-p", req.Prompt,
+				"--output-format", "text",
+				"--permission-mode", "plan",
+			}
 		},
-		checkAuth: func(stdout string) error {
+		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
 		},
 	}
@@ -181,15 +206,58 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 		binary:   binary,
 		runner:   runner,
 		environ:  environ,
+		goos:     goruntime.GOOS,
+		lookPath: exec.LookPath,
 		authArgs: []string{"login", "status"},
 		runArgs: func(req AgentRequest) []string {
-			return []string{"exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", req.Prompt}
+			return []string{
+				"exec",
+				"--ephemeral",
+				"--skip-git-repo-check",
+				"--ignore-user-config",
+				"--ignore-rules",
+				"--strict-config",
+				"--disable", "shell_tool",
+				"--disable", "code_mode",
+				"--disable", "code_mode_host",
+				"--disable", "apps",
+				"--disable", "plugins",
+				"--disable", "multi_agent",
+				"--disable", "tool_suggest",
+				"-c", `skills.include_instructions=false`,
+				"-c", `skills.bundled.enabled=false`,
+				"-c", `project_doc_max_bytes=0`,
+				"-c", `default_permissions="council"`,
+				"-c", codexCouncilFilesystemProfile,
+				"-c", `agents.enabled=false`,
+				req.Prompt,
+			}
 		},
-		checkAuth: preflight.ValidateCodexAuth,
+		checkAuth: func(stdout, stderr string) error {
+			return preflight.ValidateCodexAuth(stdout + "\n" + stderr)
+		},
 	}
 }
 
-func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, error) {
+func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentResponse, runErr error) {
+	if err := validateWorkdir(req); err != nil {
+		return AgentResponse{}, &RunError{Class: FailureIsolation, Err: err}
+	}
+	if r.provider == ProviderCodex && strings.EqualFold(r.goos, "windows") {
+		return AgentResponse{}, &RunError{
+			Class: FailureIsolation,
+			Err:   errors.New("native Windows Codex cannot guarantee Agent Council host-context isolation; run Agent Council and Codex inside WSL2/Linux"),
+		}
+	}
+	if r.provider == ProviderCodex && strings.EqualFold(r.goos, "linux") && r.lookPath != nil {
+		if resolved, err := r.lookPath(r.binary); err == nil && looksLikeWindowsInteropExecutable(resolved) {
+			return AgentResponse{}, &RunError{
+				Class: FailureIsolation,
+				Err:   fmt.Errorf("codex resolves to Windows interop executable %q; install and use a native Linux Codex binary inside WSL2", resolved),
+			}
+		}
+	}
+
 	parentEnv := r.environ()
 	if err := preflight.CheckSubscriptionEnvironment(parentEnv); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureBillingPolicyViolation, Err: err}
@@ -220,8 +288,34 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 		}
 		return AgentResponse{}, &RunError{Class: class, Err: processError("auth preflight", auth)}
 	}
-	if err := r.checkAuth(auth.Stdout); err != nil {
+	if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureAuth, Err: err}
+	}
+
+	executionEnv := safeEnv
+	if r.provider == ProviderCodex {
+		var cleanup func() error
+		executionEnv, cleanup, err = prepareCodexExecutionEnvironment(parentEnv, safeEnv, req)
+		if err != nil {
+			class := FailureIsolation
+			switch {
+			case errors.Is(err, preflight.ErrBillingPolicyViolation):
+				class = FailureBillingPolicyViolation
+			case errors.Is(err, preflight.ErrAuthFailure):
+				class = FailureAuth
+			}
+			return AgentResponse{}, &RunError{Class: class, Err: err}
+		}
+		defer func() {
+			if cleanupErr := cleanup(); cleanupErr != nil {
+				isolationErr := &RunError{Class: FailureIsolation, Err: fmt.Errorf("clean isolated Codex runtime home: %w", cleanupErr)}
+				if runErr == nil {
+					runErr = isolationErr
+				} else {
+					runErr = errors.Join(runErr, isolationErr)
+				}
+			}
+		}()
 	}
 
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -229,9 +323,9 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 			Command: r.binary,
 			Args:    r.runArgs(req),
 			Dir:     req.Workdir,
-			Env:     safeEnv,
+			Env:     executionEnv,
 		})
-		response := AgentResponse{
+		attemptResponse := AgentResponse{
 			Provider:   r.provider,
 			Stdout:     result.Stdout,
 			Stderr:     result.Stderr,
@@ -241,16 +335,51 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 			FinishedAt: result.FinishedAt,
 		}
 		if result.Err == nil && result.ExitCode == 0 {
-			return response, nil
+			return attemptResponse, nil
 		}
 
 		class := classifyFailure(result.Err, result.Stdout, result.Stderr)
 		if class != FailureProcess || attempt == 2 {
-			return response, &RunError{Class: class, Err: processError("agent execution", result)}
+			return attemptResponse, &RunError{Class: class, Err: processError("agent execution", result)}
 		}
 	}
 
 	return AgentResponse{}, &RunError{Class: FailureProcess, Err: errors.New("unreachable runtime state")}
+}
+
+func looksLikeWindowsInteropExecutable(path string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), `\`, "/"))
+	if !strings.HasPrefix(normalized, "/mnt/") {
+		return false
+	}
+	return strings.Contains(normalized, "/appdata/roaming/npm/") ||
+		strings.HasSuffix(normalized, ".exe") ||
+		strings.HasSuffix(normalized, ".cmd") ||
+		strings.HasSuffix(normalized, ".bat")
+}
+
+func validateWorkdir(req AgentRequest) error {
+	if strings.TrimSpace(req.Workdir) == "" {
+		return fmt.Errorf("isolated workdir is required")
+	}
+	if strings.TrimSpace(req.RunRoot) == "" {
+		return fmt.Errorf("full run root is required for isolation validation")
+	}
+	info, err := os.Stat(req.Workdir)
+	if err != nil {
+		return fmt.Errorf("stat isolated workdir: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("isolated workdir %q is not a directory", req.Workdir)
+	}
+	inside, err := visibility.IsWithin(req.RunRoot, req.Workdir)
+	if err != nil {
+		return fmt.Errorf("validate workdir against run root: %w", err)
+	}
+	if inside {
+		return fmt.Errorf("workdir %q must be outside full run root %q", req.Workdir, req.RunRoot)
+	}
+	return nil
 }
 
 func requestContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
