@@ -253,7 +253,7 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		if resolved, err := r.lookPath(r.binary); err == nil && looksLikeWindowsInteropExecutable(resolved) {
 			return AgentResponse{}, &RunError{
 				Class: FailureIsolation,
-				Err:   fmt.Errorf("Codex resolves to Windows interop executable %q; install and use a native Linux Codex binary inside WSL2", resolved),
+				Err:   fmt.Errorf("codex resolves to Windows interop executable %q; install and use a native Linux Codex binary inside WSL2", resolved),
 			}
 		}
 	}
