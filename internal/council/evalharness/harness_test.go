@@ -280,9 +280,21 @@ func TestValidateJudgeArtifactRejectsMissingExtraOrOutOfRangeDimensions(t *testi
 
 	cases := []JudgeArtifact{
 		func() JudgeArtifact { value := valid; value.OverallScore = 101; return value }(),
-		func() JudgeArtifact { value := valid; value.Dimensions = map[string]float64{"correctness": 80}; return value }(),
-		func() JudgeArtifact { value := valid; value.Dimensions = map[string]float64{"correctness": 80, "safety": 70, "extra": 60}; return value }(),
-		func() JudgeArtifact { value := valid; value.Dimensions = map[string]float64{"correctness": -1, "safety": 70}; return value }(),
+		func() JudgeArtifact {
+			value := valid
+			value.Dimensions = map[string]float64{"correctness": 80}
+			return value
+		}(),
+		func() JudgeArtifact {
+			value := valid
+			value.Dimensions = map[string]float64{"correctness": 80, "safety": 70, "extra": 60}
+			return value
+		}(),
+		func() JudgeArtifact {
+			value := valid
+			value.Dimensions = map[string]float64{"correctness": -1, "safety": 70}
+			return value
+		}(),
 		func() JudgeArtifact { value := valid; value.Confidence = 2; return value }(),
 	}
 	for i, artifact := range cases {
