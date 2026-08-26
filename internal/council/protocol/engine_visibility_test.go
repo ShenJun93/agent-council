@@ -10,7 +10,7 @@ import (
 	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 )
 
-func TestEngineFullInfoVisibilityKeepsCallBudgetAndShowsPeerArtifacts(t *testing.T) {
+func TestFullInfoEngineKeepsCallBudgetAndShowsPeerArtifacts(t *testing.T) {
 	t.Parallel()
 
 	runRoot := t.TempDir()
@@ -27,13 +27,12 @@ func TestEngineFullInfoVisibilityKeepsCallBudgetAndShowsPeerArtifacts(t *testing
 		judgeDecision:  "choose beta",
 	}
 
-	engine := Engine{
+	engine := FullInfoEngine{Engine: Engine{
 		Claude:             claude,
 		Codex:              codex,
 		TempRoot:           t.TempDir(),
 		ChallengerProvider: councilruntime.ProviderClaude,
-		VisibilityMode:     VisibilityFullInfo,
-	}
+	}}
 	_, err := engine.Run(context.Background(), RunRequest{
 		RunID:             "full-info-test",
 		RunRoot:           runRoot,
@@ -78,25 +77,5 @@ func TestEngineFullInfoVisibilityKeepsCallBudgetAndShowsPeerArtifacts(t *testing
 	}
 	if reviewCount != 2 || rebuttalCount != 2 {
 		t.Fatalf("review/rebuttal calls = %d/%d, want 2/2", reviewCount, rebuttalCount)
-	}
-}
-
-func TestEngineRejectsUnknownVisibilityMode(t *testing.T) {
-	t.Parallel()
-
-	engine := Engine{
-		Claude:             &fakeRuntime{provider: councilruntime.ProviderClaude},
-		Codex:              &fakeRuntime{provider: councilruntime.ProviderCodex},
-		TempRoot:           t.TempDir(),
-		ChallengerProvider: councilruntime.ProviderClaude,
-		VisibilityMode:     VisibilityMode("unknown"),
-	}
-	_, err := engine.Run(context.Background(), RunRequest{
-		RunID:             "bad-visibility",
-		RunRoot:           t.TempDir(),
-		NormalizedProblem: json.RawMessage(`{"problem":"reject bad mode"}`),
-	})
-	if err == nil || !strings.Contains(err.Error(), "visibility mode") {
-		t.Fatalf("Run() error = %v, want visibility mode validation error", err)
 	}
 }
