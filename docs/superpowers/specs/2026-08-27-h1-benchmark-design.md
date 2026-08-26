@@ -13,7 +13,7 @@ H1 contains exactly 20 evidence-bounded curated decision problems:
 - 10 technical/engineering decisions
 - 10 product decisions
 
-All cases are synthetic, self-contained, and newly authored for H1. They do not require model memory, web access, private customer data, or live external state. Every factual premise needed to reason about a case is present in the normalized problem or its frozen reference set.
+All cases are synthetic, self-contained, and newly authored for H1. They do not require model memory, web access, private customer data, or live external state. Every factual premise a candidate needs is present in the normalized problem because the frozen Phase F A–F runners receive only `NormalizedProblem`. The reference set is evaluator-side corroboration: it restates and structures the supplied evidence for Phase G judges and must not introduce a decision-critical fact that candidates were not allowed to see.
 
 The exact case roster is:
 
@@ -70,6 +70,8 @@ benchmarks/h1/
   "reference_set_sha256": "..."
 }
 ```
+
+Each `problem` is a normalized decision packet with the decision to make, context, hard constraints, named options where useful, and an evidence list whose entries have stable IDs. Each `reference_set` independently mirrors those evidence IDs with the verified claim and evaluator note needed to judge whether a candidate used the supplied evidence correctly. Reference sets may clarify how to interpret supplied facts but may not add hidden facts required to reach a competent decision.
 
 Hashes are computed over the exact compact JSON bytes materialized by the H1 loader for `problem` and `reference_set`. `manifest.json` freezes the benchmark schema version, benchmark id, case count, category counts, exact ordered case IDs, SHA-256 of `rubric.json`, SHA-256 of `cases.json`, comparator, and material-worse delta.
 
@@ -198,6 +200,7 @@ Implementation follows TDD.
 Required coverage:
 
 - H1 loader accepts exactly the committed 20-case dataset and rejects mutated hashes, duplicate IDs, wrong order, wrong category split, wrong policy, and malformed envelopes before runtime calls.
+- Every candidate-visible decision-critical fact is present in `problem`; tests ensure the committed reference sets use only evidence IDs declared by the corresponding problem.
 - Challenger schedule is exactly 10 Claude / 10 Codex and stable by global manifest index, with 5/5 balance in each category.
 - Batch orchestration calls A–F once per case through the existing runner and passes the exact same case bytes/hashes to Phase G.
 - `AllowAbbreviated` is false for every E/F problem.
