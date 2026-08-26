@@ -79,7 +79,11 @@ func TestWriteEvaluationPersistsImmutableContainedArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open provenance: %v", err)
 	}
-	defer provenanceFile.Close()
+	defer func() {
+		if err := provenanceFile.Close(); err != nil {
+			t.Errorf("close provenance: %v", err)
+		}
+	}()
 	var entries []EvalProvenance
 	scanner := bufio.NewScanner(provenanceFile)
 	for scanner.Scan() {
