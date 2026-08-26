@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+func TestLoadH1RejectsEmptyRoot(t *testing.T) {
+	_, err := LoadH1("")
+	if err == nil || !strings.Contains(err.Error(), "root") {
+		t.Fatalf("expected empty dataset root rejection, got %v", err)
+	}
+}
+
 func TestLoadH1RejectsCaseOrderMismatch(t *testing.T) {
 	root := writeValidH1Fixture(t)
 	doc := readFixtureCases(t, root)
