@@ -2,8 +2,6 @@ package benchmark
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +46,11 @@ type ResultManifest struct {
 	BatchSummarySHA256 string `json:"batch_summary_sha256"`
 }
 
+type h1FileSpec struct {
+	rel  string
+	data []byte
+}
+
 func CreateRun(ctx context.Context, runsRoot, runID string, dataset Dataset, now time.Time) (string, RunManifest, error) {
 	if err := ctx.Err(); err != nil {
 		return "", RunManifest{}, err
@@ -82,9 +85,6 @@ func CreateRun(ctx context.Context, runsRoot, runID string, dataset Dataset, now
 			_ = os.RemoveAll(runRoot)
 		}
 	}()
-	if err := ensureContained(runRoot, runRoot); err != nil {
-		return "", RunManifest{}, err
-	}
 
 	manifest := RunManifest{
 		SchemaVersion:         H1RunSchemaVersion,
@@ -100,18 +100,18 @@ func CreateRun(ctx context.Context, runsRoot, runID string, dataset Dataset, now
 		return "", RunManifest{}, fmt.Errorf("marshal H1 run manifest: %w", err)
 	}
 
-	files := []h1FileSpec{
+	specs := []h1FileSpec{
 		{rel: "h1-run.json", data: manifestBytes},
 		{rel: filepath.Join("inputs", "benchmark-manifest.json"), data: dataset.ManifestBytes},
 		{rel: filepath.Join("inputs", "rubric.json"), data: dataset.Rubric},
 	}
 	for _, c := range dataset.Cases {
-		files = append(files,
+		specs = append(specs,
 			h1FileSpec{rel: filepath.Join("inputs", "cases", c.ID, "problem.json"), data: c.Problem},
 			h1FileSpec{rel: filepath.Join("inputs", "cases", c.ID, "reference-set.json"), data: c.ReferenceSet},
 		)
 	}
-	if err := writeFileSpecs(ctx, runRoot, files); err != nil {
+	if err := writeH1Specs(ctx, runRoot, specs); err != nil {
 		return "", RunManifest{}, fmt.Errorf("freeze H1 run inputs: %w", err)
 	}
 
@@ -141,7 +141,7 @@ func WriteBaselineResults(ctx context.Context, runRoot, problemID string, result
 		return fmt.Errorf("baseline arm set has %d arms, want A-F", len(byArm))
 	}
 
-	files := make([]h1FileSpec, 0, len(h1BaselineArms))
+	specs := make([]h1FileSpec, 0, len(h1BaselineArms))
 	for _, arm := range h1BaselineArms {
 		result, ok := byArm[arm]
 		if !ok {
@@ -151,12 +151,12 @@ func WriteBaselineResults(ctx context.Context, runRoot, problemID string, result
 		if err != nil {
 			return fmt.Errorf("marshal baseline arm %s: %w", arm, err)
 		}
-		files = append(files, h1FileSpec{
+		specs = append(specs, h1FileSpec{
 			rel:  filepath.Join("baseline", problemID, "arm-"+string(arm)+".json"),
 			data: data,
 		})
 	}
-	if err := writeFileSpecs(ctx, runRoot, files); err != nil {
+	if err := writeH1Specs(ctx, runRoot, specs); err != nil {
 		return fmt.Errorf("write H1 baseline results for %q: %w", problemID, err)
 	}
 	return nil
@@ -179,7 +179,7 @@ func WriteFinalResult(ctx context.Context, runRoot, runID string, summary evalha
 	}
 	expectedHash := sha256Hex(summaryBytes)
 	batchPath := filepath.Join(runRoot, "eval", "batch-summary.json")
-	if err := ensureExistingContainedRegularFile(runRoot, batchPath); err != nil {
+	if err := requireContainedRegularFile(runRoot, batchPath); err != nil {
 		return ResultManifest{}, fmt.Errorf("validate eval/batch-summary.json: %w", err)
 	}
 	storedBytes, err := os.ReadFile(batchPath)
@@ -202,15 +202,10 @@ func WriteFinalResult(ctx context.Context, runRoot, runID string, summary evalha
 	if err != nil {
 		return ResultManifest{}, fmt.Errorf("marshal H1 result manifest: %w", err)
 	}
-	if err := writeFileSpecs(ctx, runRoot, []h1FileSpec{{rel: "h1-result.json", data: data}}); err != nil {
+	if err := writeH1Specs(ctx, runRoot, []h1FileSpec{{rel: "h1-result.json", data: data}}); err != nil {
 		return ResultManifest{}, fmt.Errorf("write H1 result manifest: %w", err)
 	}
 	return manifest, nil
-}
-
-type h1FileSpec struct {
-	rel  string
-	data []byte
 }
 
 func validateDatasetForStore(dataset Dataset) error {
@@ -223,7 +218,8 @@ func validateDatasetForStore(dataset Dataset) error {
 	if len(dataset.ManifestBytes) == 0 || len(dataset.Rubric) == 0 || len(dataset.CasesBytes) == 0 {
 		return fmt.Errorf("dataset frozen bytes are incomplete")
 	}
-	if sha256Hex(dataset.Rubric) != strings.ToLower(dataset.Manifest.RubricSHA256) || dataset.RubricSHA256 != strings.ToLower(dataset.Manifest.RubricSHA256) {
+	manifestRubricHash := strings.ToLower(dataset.Manifest.RubricSHA256)
+	if sha256Hex(dataset.Rubric) != manifestRubricHash || dataset.RubricSHA256 != manifestRubricHash {
 		return fmt.Errorf("dataset rubric hash differs from frozen manifest")
 	}
 	if sha256Hex(dataset.CasesBytes) != strings.ToLower(dataset.Manifest.CasesSHA256) {
@@ -232,7 +228,7 @@ func validateDatasetForStore(dataset Dataset) error {
 	return nil
 }
 
-func writeFileSpecs(ctx context.Context, root string, specs []h1FileSpec) error {
+func writeH1Specs(ctx context.Context, root string, specs []h1FileSpec) error {
 	if err := requireRealDirectory(root); err != nil {
 		return err
 	}
@@ -242,11 +238,12 @@ func writeFileSpecs(ctx context.Context, root string, specs []h1FileSpec) error 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if filepath.IsAbs(spec.rel) || spec.rel == "." || spec.rel == ".." || strings.HasPrefix(filepath.Clean(spec.rel), ".."+string(filepath.Separator)) {
+		clean := filepath.Clean(spec.rel)
+		if filepath.IsAbs(spec.rel) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("unsafe relative artifact path %q", spec.rel)
 		}
-		path := filepath.Join(root, spec.rel)
-		if err := ensureContainedParent(root, filepath.Dir(path)); err != nil {
+		path := filepath.Join(root, clean)
+		if err := mkdirContained(root, filepath.Dir(path)); err != nil {
 			return fmt.Errorf("prepare artifact %q: %w", spec.rel, err)
 		}
 		if _, err := os.Lstat(path); err == nil {
@@ -294,24 +291,13 @@ func requireRealDirectory(path string) error {
 	return nil
 }
 
-func ensureContainedParent(root, parent string) error {
+func mkdirContained(root, parent string) error {
 	if err := requireRealDirectory(root); err != nil {
 		return fmt.Errorf("validate root: %w", err)
 	}
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, rel, err := relativeInside(root, parent)
 	if err != nil {
-		return fmt.Errorf("absolute root: %w", err)
-	}
-	parentAbs, err := filepath.Abs(parent)
-	if err != nil {
-		return fmt.Errorf("absolute parent: %w", err)
-	}
-	rel, err := filepath.Rel(rootAbs, parentAbs)
-	if err != nil {
-		return fmt.Errorf("relativize parent: %w", err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("path %q escapes root %q", parent, root)
+		return err
 	}
 	if rel == "." {
 		return nil
@@ -334,10 +320,62 @@ func ensureContainedParent(root, parent string) error {
 			return fmt.Errorf("inspect directory %q: %w", current, statErr)
 		}
 	}
-	return ensureContained(root, parent)
+	return ensureResolvedInside(root, parent)
 }
 
-func ensureContained(root, candidate string) error {
+func requireContainedRegularFile(root, path string) error {
+	if err := requireRealDirectory(root); err != nil {
+		return err
+	}
+	_, rel, err := relativeInside(root, path)
+	if err != nil {
+		return err
+	}
+	current := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q is a symlink", current)
+		}
+		if i < len(parts)-1 && !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", current)
+		}
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q must be a regular file", path)
+	}
+	return ensureResolvedInside(root, path)
+}
+
+func relativeInside(root, candidate string) (string, string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", fmt.Errorf("absolute root: %w", err)
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", "", fmt.Errorf("absolute candidate: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, candidateAbs)
+	if err != nil {
+		return "", "", fmt.Errorf("relativize candidate: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", "", fmt.Errorf("path %q escapes root %q", candidate, root)
+	}
+	return rootAbs, rel, nil
+}
+
+func ensureResolvedInside(root, candidate string) error {
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return fmt.Errorf("resolve root: %w", err)
@@ -346,36 +384,8 @@ func ensureContained(root, candidate string) error {
 	if err != nil {
 		return fmt.Errorf("resolve candidate: %w", err)
 	}
-	rootAbs, err := filepath.Abs(resolvedRoot)
-	if err != nil {
-		return fmt.Errorf("absolute root: %w", err)
-	}
-	candidateAbs, err := filepath.Abs(resolvedCandidate)
-	if err != nil {
-		return fmt.Errorf("absolute candidate: %w", err)
-	}
-	rel, err := filepath.Rel(rootAbs, candidateAbs)
-	if err != nil {
-		return fmt.Errorf("relativize candidate: %w", err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("path %q escapes root %q", candidate, root)
-	}
-	return nil
-}
-
-func ensureExistingContainedRegularFile(root, path string) error {
-	if err := ensureContainedParent(root, filepath.Dir(path)); err != nil {
-		return err
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("%q must be a regular non-symlink file", path)
-	}
-	return ensureContained(root, path)
+	_, _, err = relativeInside(resolvedRoot, resolvedCandidate)
+	return err
 }
 
 func writeH1Exclusive(path string, data []byte) error {
@@ -398,9 +408,4 @@ func writeH1Exclusive(path string, data []byte) error {
 		return err
 	}
 	return nil
-}
-
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
