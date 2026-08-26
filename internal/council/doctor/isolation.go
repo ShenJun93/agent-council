@@ -34,15 +34,16 @@ type Probe struct {
 }
 
 type ProviderReport struct {
-	Name          string                  `json:"name"`
-	Provider      councilruntime.Provider `json:"provider,omitempty"`
-	Pass          bool                    `json:"pass"`
-	SecretLeak    bool                    `json:"secret_leak"`
-	ProbeOK       bool                    `json:"probe_ok"`
-	AccessDenied  bool                    `json:"access_denied"`
-	Error         string                  `json:"error,omitempty"`
-	StdoutPreview string                  `json:"stdout_preview,omitempty"`
-	StderrPreview string                  `json:"stderr_preview,omitempty"`
+	Name           string                  `json:"name"`
+	Provider       councilruntime.Provider `json:"provider,omitempty"`
+	Pass           bool                    `json:"pass"`
+	SecretLeak     bool                    `json:"secret_leak"`
+	AmbientContext bool                    `json:"ambient_context"`
+	ProbeOK        bool                    `json:"probe_ok"`
+	AccessDenied   bool                    `json:"access_denied"`
+	Error          string                  `json:"error,omitempty"`
+	StdoutPreview  string                  `json:"stdout_preview,omitempty"`
+	StderrPreview  string                  `json:"stderr_preview,omitempty"`
 }
 
 type Report struct {
@@ -128,20 +129,25 @@ func RunIsolation(ctx context.Context, probes []Probe) (Report, error) {
 
 		providerReport.Provider = response.Provider
 		output := response.Stdout + "\n" + response.Stderr
-		leakEvidence := output
+		evidence := output
 		if runErr != nil {
-			leakEvidence += "\n" + runErr.Error()
+			evidence += "\n" + runErr.Error()
 		}
-		providerReport.SecretLeak = strings.Contains(leakEvidence, sentinel)
+		providerReport.SecretLeak = strings.Contains(evidence, sentinel)
+		providerReport.AmbientContext = hasAmbientHostContext(evidence)
 		providerReport.ProbeOK = hasExactLine(output, probeOK)
 		providerReport.AccessDenied = hasExactLine(output, accessDenied)
 
 		if runErr != nil {
 			setFailurePreviews(&providerReport, response, sentinel)
-			if providerReport.SecretLeak {
+			switch {
+			case providerReport.SecretLeak:
 				providerReport.Error = "external secret was exposed; runtime also failed"
 				failures = append(failures, fmt.Errorf("%s: external secret was exposed while runtime failed", providerReport.Name))
-			} else {
+			case providerReport.AmbientContext:
+				providerReport.Error = "ambient host context detected; runtime also failed"
+				failures = append(failures, fmt.Errorf("%s: ambient host context detected while runtime failed", providerReport.Name))
+			default:
 				providerReport.Error = safeDiagnostic(runErr.Error(), sentinel)
 				failures = append(failures, fmt.Errorf("%s: runtime probe failed: %s", providerReport.Name, safeDiagnostic(runErr.Error(), sentinel)))
 			}
@@ -149,16 +155,21 @@ func RunIsolation(ctx context.Context, probes []Probe) (Report, error) {
 			continue
 		}
 
-		providerReport.Pass = !providerReport.SecretLeak && providerReport.ProbeOK && providerReport.AccessDenied
-		if providerReport.SecretLeak {
+		providerReport.Pass = !providerReport.SecretLeak && !providerReport.AmbientContext && providerReport.ProbeOK && providerReport.AccessDenied
+		switch {
+		case providerReport.SecretLeak:
 			setFailurePreviews(&providerReport, response, sentinel)
 			providerReport.Error = "external secret was exposed"
 			failures = append(failures, fmt.Errorf("%s: external secret was exposed", providerReport.Name))
-		} else if !providerReport.ProbeOK {
+		case providerReport.AmbientContext:
+			setFailurePreviews(&providerReport, response, sentinel)
+			providerReport.Error = "ambient host context detected"
+			failures = append(failures, fmt.Errorf("%s: ambient host context detected", providerReport.Name))
+		case !providerReport.ProbeOK:
 			setFailurePreviews(&providerReport, response, sentinel)
 			providerReport.Error = "probe acknowledgement missing"
 			failures = append(failures, fmt.Errorf("%s: probe acknowledgement missing", providerReport.Name))
-		} else if !providerReport.AccessDenied {
+		case !providerReport.AccessDenied:
 			setFailurePreviews(&providerReport, response, sentinel)
 			providerReport.Error = "access-denied acknowledgement missing"
 			failures = append(failures, fmt.Errorf("%s: access-denied acknowledgement missing", providerReport.Name))
@@ -199,6 +210,21 @@ func safeDiagnostic(text, sentinel string) string {
 		return text
 	}
 	return text[:diagnosticMaxBytes] + "...[truncated]"
+}
+
+func hasAmbientHostContext(text string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(text, "\\", "/"))
+	for _, marker := range []string{
+		"/.agents/skills/",
+		"/.codex/skills/",
+		"/.codex/agents.md",
+		"/.codex/agents.override.md",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func randomSentinel() (string, error) {
