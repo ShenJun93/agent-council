@@ -19,6 +19,13 @@ type codexAuthEnvelope struct {
 	OpenAIAPIKey string `json:"OPENAI_API_KEY"`
 }
 
+func prepareCodexAuthEnvironment(parentEnv, safeEnv []string) []string {
+	if value := strings.TrimSpace(environmentValues(parentEnv)["CODEX_HOME"]); value != "" {
+		return overrideEnvironment(safeEnv, map[string]string{"CODEX_HOME": value})
+	}
+	return safeEnv
+}
+
 func prepareCodexExecutionEnvironment(parentEnv, safeEnv []string, req AgentRequest) ([]string, func() error, error) {
 	sourceHome, err := sourceCodexHome(parentEnv)
 	if err != nil {
