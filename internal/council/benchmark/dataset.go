@@ -81,7 +81,11 @@ type rubricDimension struct {
 }
 
 func LoadH1(root string) (Dataset, error) {
-	root = filepath.Clean(strings.TrimSpace(root))
+	trimmedRoot := strings.TrimSpace(root)
+	if trimmedRoot == "" {
+		return Dataset{}, fmt.Errorf("H1 dataset root is required")
+	}
+	root = filepath.Clean(trimmedRoot)
 	info, err := os.Lstat(root)
 	if err != nil {
 		return Dataset{}, fmt.Errorf("stat H1 dataset root: %w", err)
