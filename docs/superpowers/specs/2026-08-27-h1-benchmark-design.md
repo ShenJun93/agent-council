@@ -118,7 +118,7 @@ protocol.ChallengePolicy{
 
 The threshold is inert because abbreviated challenge is disabled. This guarantees the full Phase F path for every H1 E/F execution.
 
-The challenger provider is balanced deterministically across the 20 cases: odd-numbered cases in the ordered H1 roster use Claude, even-numbered cases use Codex. The same challenger provider is used for E and F of the same problem. This produces exactly 10 Claude-challenger and 10 Codex-challenger problems without changing any arm semantics.
+The manifest order is globally indexed from 1 through 20: technical cases occupy indices 1–10 in the order listed above, and product cases occupy indices 11–20 in the order listed above. Odd global indices use Claude as challenger and even global indices use Codex. The same challenger provider is used for E and F of the same problem. This produces exactly 10 Claude-challenger and 10 Codex-challenger problems overall, with 5/5 challenger balance inside each category, without changing any arm semantics.
 
 ## H1 Orchestration
 
@@ -198,7 +198,7 @@ Implementation follows TDD.
 Required coverage:
 
 - H1 loader accepts exactly the committed 20-case dataset and rejects mutated hashes, duplicate IDs, wrong order, wrong category split, wrong policy, and malformed envelopes before runtime calls.
-- Challenger schedule is exactly 10 Claude / 10 Codex and stable by case order.
+- Challenger schedule is exactly 10 Claude / 10 Codex and stable by global manifest index, with 5/5 balance in each category.
 - Batch orchestration calls A–F once per case through the existing runner and passes the exact same case bytes/hashes to Phase G.
 - `AllowAbbreviated` is false for every E/F problem.
 - Raw A–F outputs and frozen inputs are written immutably with containment checks.
