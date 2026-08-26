@@ -12,7 +12,8 @@ func TestCodexIsolationRuntimeDisablesLocalAndPeerCapabilitySurfaces(t *testing.
 		{Stderr: "Logged in using ChatGPT\n", ExitCode: 0},
 		{Stdout: "answer\n", ExitCode: 0},
 	}}
-	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+	environ := codexFileAuthEnvironmentForTest(t)
+	rt := newCodexCLI("codex", runner, func() []string { return environ })
 
 	if _, err := rt.Run(context.Background(), isolatedRequest(t, "review")); err != nil {
 		t.Fatal(err)
