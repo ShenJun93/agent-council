@@ -217,6 +217,9 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 				"--disable", "plugins",
 				"--disable", "multi_agent",
 				"--disable", "tool_suggest",
+				"-c", `skills.include_instructions=false`,
+				"-c", `skills.bundled.enabled=false`,
+				"-c", `project_doc_max_bytes=0`,
 				"-c", `default_permissions="council"`,
 				"-c", codexCouncilFilesystemProfile,
 				"-c", `agents.enabled=false`,
@@ -229,7 +232,7 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 	}
 }
 
-func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, error) {
+func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentResponse, runErr error) {
 	if err := validateWorkdir(req); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureIsolation, Err: err}
 	}
@@ -268,14 +271,40 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 		return AgentResponse{}, &RunError{Class: FailureAuth, Err: err}
 	}
 
+	executionEnv := safeEnv
+	if r.provider == ProviderCodex {
+		var cleanup func() error
+		executionEnv, cleanup, err = prepareCodexExecutionEnvironment(parentEnv, safeEnv, req)
+		if err != nil {
+			class := FailureIsolation
+			switch {
+			case errors.Is(err, preflight.ErrBillingPolicyViolation):
+				class = FailureBillingPolicyViolation
+			case errors.Is(err, preflight.ErrAuthFailure):
+				class = FailureAuth
+			}
+			return AgentResponse{}, &RunError{Class: class, Err: err}
+		}
+		defer func() {
+			if cleanupErr := cleanup(); cleanupErr != nil {
+				isolationErr := &RunError{Class: FailureIsolation, Err: fmt.Errorf("clean isolated Codex runtime home: %w", cleanupErr)}
+				if runErr == nil {
+					runErr = isolationErr
+				} else {
+					runErr = errors.Join(runErr, isolationErr)
+				}
+			}
+		}()
+	}
+
 	for attempt := 1; attempt <= 2; attempt++ {
 		result := r.runner.Run(runCtx, processSpec{
 			Command: r.binary,
 			Args:    r.runArgs(req),
 			Dir:     req.Workdir,
-			Env:     safeEnv,
+			Env:     executionEnv,
 		})
-		response := AgentResponse{
+		attemptResponse := AgentResponse{
 			Provider:   r.provider,
 			Stdout:     result.Stdout,
 			Stderr:     result.Stderr,
@@ -285,12 +314,12 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (AgentResponse, 
 			FinishedAt: result.FinishedAt,
 		}
 		if result.Err == nil && result.ExitCode == 0 {
-			return response, nil
+			return attemptResponse, nil
 		}
 
 		class := classifyFailure(result.Err, result.Stdout, result.Stderr)
 		if class != FailureProcess || attempt == 2 {
-			return response, &RunError{Class: class, Err: processError("agent execution", result)}
+			return attemptResponse, &RunError{Class: class, Err: processError("agent execution", result)}
 		}
 	}
 
