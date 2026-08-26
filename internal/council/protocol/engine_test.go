@@ -66,11 +66,11 @@ func (f *fakeRuntime) Run(_ context.Context, req councilruntime.AgentRequest) (c
 		output = RebuttalArtifact{
 			AcceptedCriticisms:        []string{"accepted"},
 			RejectedCriticisms:        []string{"rejected"},
-			ChangedPosition:            true,
+			ChangedPosition:           true,
 			PositionCorrectBeforeFlip: true,
-			UpdatedRecommendation:      f.recommendation + " updated",
-			UpdatedConfidence:          0.75,
-			Reasons:                    []string{"evidence changed the position"},
+			UpdatedRecommendation:     f.recommendation + " updated",
+			UpdatedConfidence:         0.75,
+			Reasons:                   []string{"evidence changed the position"},
 		}
 	case PhaseJudge:
 		output = JudgeArtifact{
