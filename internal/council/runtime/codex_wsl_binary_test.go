@@ -13,7 +13,7 @@ func TestCodexRuntimeFailsClosedWhenLinuxResolvesWindowsCodexShim(t *testing.T) 
 	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} }).(*cliRuntime)
 	rt.goos = "linux"
 	rt.lookPath = func(string) (string, error) {
-		return `/mnt/c/Users/PACMAP/AppData/Roaming/npm/codex`, nil
+		return `/mnt/c/Users/example/AppData/Roaming/npm/codex`, nil
 	}
 
 	_, err := rt.Run(context.Background(), isolatedRequest(t, "review"))
