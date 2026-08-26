@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -147,6 +148,7 @@ type cliRuntime struct {
 	binary    string
 	runner    processRunner
 	environ   func() []string
+	goos      string
 	authArgs  []string
 	runArgs   func(AgentRequest) []string
 	checkAuth func(stdout, stderr string) error
@@ -169,6 +171,7 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		binary:   binary,
 		runner:   runner,
 		environ:  environ,
+		goos:     goruntime.GOOS,
 		authArgs: []string{"auth", "status", "--json"},
 		runArgs: func(req AgentRequest) []string {
 			return []string{
@@ -201,6 +204,7 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 		binary:   binary,
 		runner:   runner,
 		environ:  environ,
+		goos:     goruntime.GOOS,
 		authArgs: []string{"login", "status"},
 		runArgs: func(req AgentRequest) []string {
 			return []string{
@@ -235,6 +239,12 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentResponse, runErr error) {
 	if err := validateWorkdir(req); err != nil {
 		return AgentResponse{}, &RunError{Class: FailureIsolation, Err: err}
+	}
+	if r.provider == ProviderCodex && strings.EqualFold(r.goos, "windows") {
+		return AgentResponse{}, &RunError{
+			Class: FailureIsolation,
+			Err:   errors.New("native Windows Codex cannot guarantee Agent Council host-context isolation; run Agent Council and Codex inside WSL2/Linux"),
+		}
 	}
 
 	parentEnv := r.environ()
