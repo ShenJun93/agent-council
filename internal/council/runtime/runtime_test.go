@@ -114,7 +114,8 @@ func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T
 		{Stdout: "Logged in using ChatGPT\n", ExitCode: 0},
 		{Stdout: "answer\n", ExitCode: 0},
 	}}
-	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+	environ := codexFileAuthEnvironmentForTest(t)
+	rt := newCodexCLI("codex", runner, func() []string { return environ })
 	req := isolatedRequest(t, "review")
 	req.Timeout = time.Second
 
@@ -142,6 +143,9 @@ func TestCodexRuntimeRequiresChatGPTAndUsesWorkspaceOnlyPermissions(t *testing.T
 		"--disable", "plugins",
 		"--disable", "multi_agent",
 		"--disable", "tool_suggest",
+		"-c", `skills.include_instructions=false`,
+		"-c", `skills.bundled.enabled=false`,
+		"-c", `project_doc_max_bytes=0`,
 		"-c", `default_permissions="council"`,
 		"-c", `permissions.council.filesystem={":root"="deny",":minimal"="read",":workspace_roots"={"."="read"}}`,
 		"-c", `agents.enabled=false`,
@@ -161,7 +165,8 @@ func TestCodexRuntimeAcceptsChatGPTStatusFromStderr(t *testing.T) {
 		{Stderr: "Logged in using ChatGPT\n", ExitCode: 0},
 		{Stdout: "answer\n", ExitCode: 0},
 	}}
-	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin", "HOME=/home/test"} })
+	environ := codexFileAuthEnvironmentForTest(t)
+	rt := newCodexCLI("codex", runner, func() []string { return environ })
 
 	resp, err := rt.Run(context.Background(), isolatedRequest(t, "review"))
 	if err != nil {
@@ -214,7 +219,8 @@ func TestRuntimeRetriesProcessFailureOnce(t *testing.T) {
 		{Stderr: "temporary crash", ExitCode: 2, Err: errors.New("exit status 2")},
 		{Stdout: "recovered", ExitCode: 0},
 	}}
-	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
+	environ := codexFileAuthEnvironmentForTest(t)
+	rt := newCodexCLI("codex", runner, func() []string { return environ })
 
 	resp, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	if err != nil {
@@ -235,7 +241,8 @@ func TestRuntimeDoesNotRetryQuotaFailure(t *testing.T) {
 		{Stdout: "Logged in using ChatGPT\n", ExitCode: 0},
 		{Stderr: "usage limit reached", ExitCode: 1, Err: errors.New("exit status 1")},
 	}}
-	rt := newCodexCLI("codex", runner, func() []string { return []string{"PATH=/bin"} })
+	environ := codexFileAuthEnvironmentForTest(t)
+	rt := newCodexCLI("codex", runner, func() []string { return environ })
 
 	_, err := rt.Run(context.Background(), isolatedRequest(t, "x"))
 	var runErr *RunError
