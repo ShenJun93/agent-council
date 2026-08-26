@@ -222,7 +222,7 @@ func TestEngineUsesAuditedAbbreviatedChallengeOnHighConfidenceAgreement(t *testi
 		TempRoot:           t.TempDir(),
 		ChallengerProvider: councilruntime.ProviderCodex,
 		ChallengePolicy: ChallengePolicy{
-			AllowAbbreviated:       true,
+			AllowAbbreviated:        true,
 			HighConfidenceThreshold: 0.9,
 		},
 	}
