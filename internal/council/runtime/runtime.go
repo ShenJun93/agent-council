@@ -149,6 +149,7 @@ type cliRuntime struct {
 	runner    processRunner
 	environ   func() []string
 	goos      string
+	lookPath  func(string) (string, error)
 	authArgs  []string
 	runArgs   func(AgentRequest) []string
 	checkAuth func(stdout, stderr string) error
@@ -172,6 +173,7 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		runner:   runner,
 		environ:  environ,
 		goos:     goruntime.GOOS,
+		lookPath: exec.LookPath,
 		authArgs: []string{"auth", "status", "--json"},
 		runArgs: func(req AgentRequest) []string {
 			return []string{
@@ -205,6 +207,7 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 		runner:   runner,
 		environ:  environ,
 		goos:     goruntime.GOOS,
+		lookPath: exec.LookPath,
 		authArgs: []string{"login", "status"},
 		runArgs: func(req AgentRequest) []string {
 			return []string{
@@ -244,6 +247,14 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		return AgentResponse{}, &RunError{
 			Class: FailureIsolation,
 			Err:   errors.New("native Windows Codex cannot guarantee Agent Council host-context isolation; run Agent Council and Codex inside WSL2/Linux"),
+		}
+	}
+	if r.provider == ProviderCodex && strings.EqualFold(r.goos, "linux") && r.lookPath != nil {
+		if resolved, err := r.lookPath(r.binary); err == nil && looksLikeWindowsInteropExecutable(resolved) {
+			return AgentResponse{}, &RunError{
+				Class: FailureIsolation,
+				Err:   fmt.Errorf("Codex resolves to Windows interop executable %q; install and use a native Linux Codex binary inside WSL2", resolved),
+			}
 		}
 	}
 
@@ -334,6 +345,17 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 	}
 
 	return AgentResponse{}, &RunError{Class: FailureProcess, Err: errors.New("unreachable runtime state")}
+}
+
+func looksLikeWindowsInteropExecutable(path string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), `\`, "/"))
+	if !strings.HasPrefix(normalized, "/mnt/") {
+		return false
+	}
+	return strings.Contains(normalized, "/appdata/roaming/npm/") ||
+		strings.HasSuffix(normalized, ".exe") ||
+		strings.HasSuffix(normalized, ".cmd") ||
+		strings.HasSuffix(normalized, ".bat")
 }
 
 func validateWorkdir(req AgentRequest) error {
