@@ -2,15 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ShenJun93/agent-council/internal/council/app"
+	"github.com/ShenJun93/agent-council/internal/council/baseline"
+	"github.com/ShenJun93/agent-council/internal/council/benchmark"
+	"github.com/ShenJun93/agent-council/internal/council/config"
 	"github.com/ShenJun93/agent-council/internal/council/doctor"
+	"github.com/ShenJun93/agent-council/internal/council/evalharness"
 	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 )
 
@@ -18,7 +25,23 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+type h1ExecutionRequest struct {
+	Dataset     benchmark.Dataset
+	DatasetPath string
+	RunsRoot    string
+	RunID       string
+	TempRoot    string
+	ClaudeBin   string
+	CodexBin    string
+}
+
+type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
+
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWithH1Executor(args, stdout, stderr, executeH1Benchmark)
+}
+
+func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Executor) int {
 	if len(args) < 2 || args[0] != "council" {
 		printUsage(stderr)
 		return 2
@@ -29,6 +52,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runCouncilRun(args[2:], stdout, stderr)
 	case "doctor":
 		return runCouncilDoctor(args[2:], stdout, stderr)
+	case "benchmark":
+		return runCouncilBenchmark(args[2:], stdout, stderr, execute)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
 		printUsage(stderr)
@@ -77,6 +102,107 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runCouncilBenchmark(args []string, stdout, stderr io.Writer, execute h1Executor) int {
+	if len(args) == 0 || args[0] != "h1" {
+		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1 subcommand")
+		printUsage(stderr)
+		return 2
+	}
+	return runCouncilBenchmarkH1(args[1:], stdout, stderr, execute)
+}
+
+func runCouncilBenchmarkH1(args []string, stdout, stderr io.Writer, execute h1Executor) int {
+	fs := flag.NewFlagSet("agentd council benchmark h1", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	datasetPath := fs.String("dataset", filepath.FromSlash("benchmarks/h1"), "path to frozen H1 dataset")
+	runsDir := fs.String("runs-dir", "", "override H1 run artifact root")
+	configPath := fs.String("config", "", "path to council.yaml")
+	tempRoot := fs.String("temp-root", os.TempDir(), "temporary workspace root")
+	claudeBin := fs.String("claude-bin", "claude", "Claude Code CLI binary")
+	codexBin := fs.String("codex-bin", "codex", "Codex CLI binary")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 {
+		_, _ = fmt.Fprintln(stderr, "agentd council benchmark h1 does not accept positional arguments")
+		return 2
+	}
+	if execute == nil {
+		_, _ = fmt.Fprintln(stderr, "H1 benchmark executor is required")
+		return 1
+	}
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "load H1 config: %v\n", err)
+		return 1
+	}
+	dataset, err := benchmark.LoadH1(*datasetPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "load H1 dataset: %v\n", err)
+		return 1
+	}
+	resolvedRunsRoot := *runsDir
+	if resolvedRunsRoot == "" {
+		resolvedRunsRoot = cfg.Runs.Root
+	}
+	runID, err := newH1RunID(time.Now().UTC())
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "generate H1 run id: %v\n", err)
+		return 1
+	}
+
+	result, err := execute(context.Background(), h1ExecutionRequest{
+		Dataset:     dataset,
+		DatasetPath: *datasetPath,
+		RunsRoot:    resolvedRunsRoot,
+		RunID:       runID,
+		TempRoot:    *tempRoot,
+		ClaudeBin:   *claudeBin,
+		CodexBin:    *codexBin,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "run H1 benchmark: %v\n", err)
+		return 1
+	}
+	if err := json.NewEncoder(stdout).Encode(result); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write H1 benchmark output: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func executeH1Benchmark(ctx context.Context, req h1ExecutionRequest) (benchmark.RunResult, error) {
+	claude := councilruntime.NewClaudeCLI(req.ClaudeBin)
+	codex := councilruntime.NewCodexCLI(req.CodexBin)
+	evaluator := evalharness.Harness{Claude: claude, Codex: codex, TempRoot: req.TempRoot}
+	runner := benchmark.Runner{
+		NewBaseline: func(provider councilruntime.Provider) benchmark.BaselineExecutor {
+			return baseline.Runner{
+				Claude:             claude,
+				Codex:              codex,
+				TempRoot:           req.TempRoot,
+				ChallengerProvider: provider,
+				ChallengePolicy:    benchmark.H1ChallengePolicy,
+			}
+		},
+		Evaluator: evaluator,
+	}
+	return runner.Run(ctx, benchmark.RunRequest{
+		Dataset:  req.Dataset,
+		RunsRoot: req.RunsRoot,
+		RunID:    req.RunID,
+	})
+}
+
+func newH1RunID(now time.Time) (string, error) {
+	var suffix [6]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", fmt.Errorf("random suffix: %w", err)
+	}
+	return "h1-" + now.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(suffix[:]), nil
+}
+
 func runCouncilDoctor(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "isolation" {
 		_, _ = fmt.Fprintln(stderr, "agentd council doctor requires the isolation subcommand")
@@ -122,5 +248,6 @@ func runCouncilDoctorIsolationWithProbes(ctx context.Context, probes []doctor.Pr
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "usage:")
 	_, _ = fmt.Fprintln(w, "  agentd council run [flags] <problem.md>")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark h1 [--dataset benchmarks/h1] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }
