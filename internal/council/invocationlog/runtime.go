@@ -1,6 +1,7 @@
 package invocationlog
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,19 +20,20 @@ import (
 const SchemaVersion = "council.invocation-evidence.v1"
 
 type Evidence struct {
-	SchemaVersion string                  `json:"schema_version"`
-	RunID         string                  `json:"run_id"`
-	Provider      councilruntime.Provider `json:"provider"`
-	Participant   string                  `json:"participant"`
-	Role          string                  `json:"role"`
-	Phase         string                  `json:"phase"`
-	PromptSHA256  string                  `json:"prompt_sha256"`
-	Stdout        string                  `json:"stdout"`
-	Stderr        string                  `json:"stderr"`
-	ExitCode      int                     `json:"exit_code"`
-	Attempts      int                     `json:"attempts"`
-	StartedAt     time.Time               `json:"started_at"`
-	FinishedAt    time.Time               `json:"finished_at"`
+	SchemaVersion      string                  `json:"schema_version"`
+	RunID              string                  `json:"run_id"`
+	Provider           councilruntime.Provider `json:"provider"`
+	Participant        string                  `json:"participant"`
+	Role               string                  `json:"role"`
+	Phase              string                  `json:"phase"`
+	PromptSHA256       string                  `json:"prompt_sha256"`
+	OutputSchemaSHA256 string                  `json:"output_schema_sha256,omitempty"`
+	Stdout             string                  `json:"stdout"`
+	Stderr             string                  `json:"stderr"`
+	ExitCode           int                     `json:"exit_code"`
+	Attempts           int                     `json:"attempts"`
+	StartedAt          time.Time               `json:"started_at"`
+	FinishedAt         time.Time               `json:"finished_at"`
 }
 
 type Runtime struct {
@@ -63,20 +65,25 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	}
 
 	digest := sha256.Sum256([]byte(req.Prompt))
+	outputSchemaDigest, digestErr := compactSchemaDigest(req.OutputSchema)
+	if digestErr != nil {
+		return response, errors.Join(runErr, isolation(fmt.Errorf("hash output schema: %w", digestErr)))
+	}
 	evidence := Evidence{
-		SchemaVersion: SchemaVersion,
-		RunID:         req.RunID,
-		Provider:      r.Provider,
-		Participant:   req.Participant,
-		Role:          req.Role,
-		Phase:         req.Phase,
-		PromptSHA256:  hex.EncodeToString(digest[:]),
-		Stdout:        response.Stdout,
-		Stderr:        response.Stderr,
-		ExitCode:      response.ExitCode,
-		Attempts:      response.Attempts,
-		StartedAt:     response.StartedAt,
-		FinishedAt:    response.FinishedAt,
+		SchemaVersion:      SchemaVersion,
+		RunID:              req.RunID,
+		Provider:           r.Provider,
+		Participant:        req.Participant,
+		Role:               req.Role,
+		Phase:              req.Phase,
+		PromptSHA256:       hex.EncodeToString(digest[:]),
+		OutputSchemaSHA256: outputSchemaDigest,
+		Stdout:             response.Stdout,
+		Stderr:             response.Stderr,
+		ExitCode:           response.ExitCode,
+		Attempts:           response.Attempts,
+		StartedAt:          response.StartedAt,
+		FinishedAt:         response.FinishedAt,
 	}
 	data, err := json.Marshal(evidence)
 	if err != nil {
@@ -112,4 +119,17 @@ func validateComponent(name, value string) error {
 
 func isolation(err error) error {
 	return &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: err}
+}
+
+func compactSchemaDigest(raw json.RawMessage) (string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "", nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(compact.Bytes())
+	return hex.EncodeToString(digest[:]), nil
 }

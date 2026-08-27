@@ -38,18 +38,18 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark)
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark)
 }
 
 func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Executor) int {
-	return runWithAllBenchmarkExecutors(args, stdout, stderr, execute, nil, nil)
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, execute, nil, nil, nil)
 }
 
 func runWithBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
-	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, nil)
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, nil, nil)
 }
 
-func runWithAllBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor) int {
+func runWithAllBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 ...h4Executor) int {
 	if len(args) < 2 || args[0] != "council" {
 		printUsage(stderr)
 		return 2
@@ -61,7 +61,7 @@ func runWithAllBenchmarkExecutors(args []string, stdout, stderr io.Writer, execu
 	case "doctor":
 		return runCouncilDoctor(args[2:], stdout, stderr)
 	case "benchmark":
-		return runCouncilBenchmarkAll(args[2:], stdout, stderr, executeH1, executeH2, executeH3)
+		return runCouncilBenchmarkAll(args[2:], stdout, stderr, executeH1, executeH2, executeH3, executeH4...)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
 		printUsage(stderr)
@@ -110,9 +110,13 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runCouncilBenchmarkAll(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor) int {
+func runCouncilBenchmarkAll(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 ...h4Executor) int {
+	var h4 h4Executor
+	if len(executeH4) > 0 {
+		h4 = executeH4[0]
+	}
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1, h2, or h3 subcommand")
+		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1, h2, h3, or h4 subcommand")
 		printUsage(stderr)
 		return 2
 	}
@@ -123,6 +127,8 @@ func runCouncilBenchmarkAll(args []string, stdout, stderr io.Writer, executeH1 h
 		return runCouncilBenchmarkH2(args[1:], stdout, stderr, executeH2)
 	case "h3":
 		return runCouncilBenchmarkH3(args[1:], stdout, stderr, executeH3)
+	case "h4":
+		return runCouncilBenchmarkH4(args[1:], stdout, stderr, h4)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown benchmark version %q\n", args[0])
 		printUsage(stderr)
@@ -269,5 +275,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  agentd council run [flags] <problem.md>")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h1 [--dataset benchmarks/h1] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h2 [--dataset benchmarks/h2] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark h3 [--dataset benchmarks/h3] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark h4 [--dataset benchmarks/h4] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }
