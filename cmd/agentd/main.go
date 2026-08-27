@@ -110,10 +110,6 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runCouncilBenchmark(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
-	return runCouncilBenchmarkAll(args, stdout, stderr, executeH1, executeH2, nil)
-}
-
 func runCouncilBenchmarkAll(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1, h2, or h3 subcommand")
