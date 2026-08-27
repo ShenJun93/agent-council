@@ -25,7 +25,7 @@
 
 **Interfaces:**
 - Produces `AgentRequest.OutputSchema json.RawMessage`.
-- Claude non-empty schema adds `--json-schema <compact-json>`.
+- Claude non-empty schema adds `--json-schema <compact-json>` and switches that call to `--output-format json`; schema-free calls remain `text`.
 - Codex non-empty schema adds `--output-schema <temporary-file>` whose bytes equal compact schema and which is removed after execution.
 
 - [ ] **Step 1:** Add RED runtime tests proving schema-free Claude/Codex args are unchanged, Claude receives inline schema, Codex receives a readable schema file during process execution, invalid/non-object schemas never invoke the agent process, and Codex schema temp files are removed after success and failure.
@@ -39,13 +39,13 @@
 **Files:** create `internal/council/structuredoutput/{runtime.go,schemas.go,runtime_test.go,schemas_test.go}`; modify `internal/council/invocationlog/{runtime.go,runtime_test.go}`.
 
 **Interfaces:**
-- Produces `structuredoutput.Wrap(inner councilruntime.AgentRuntime) councilruntime.AgentRuntime`.
+- Produces `structuredoutput.Wrap(inner councilruntime.AgentRuntime) councilruntime.AgentRuntime`; the wrapper injects the frozen schema and, for Claude only, extracts `.structured_output` from the raw JSON result envelope after invocation logging.
 - Produces `structuredoutput.SchemaFor(role, phase string) (json.RawMessage, error)`.
 - Adds optional `Evidence.OutputSchemaSHA256 string ` + "`json:\"output_schema_sha256,omitempty\"`" + `.
 
-- [ ] **Step 1:** Add RED tests for all H4 mappings: baseline draft/final→Answer, research→Research, review→Review, challenge→Challenge, rebuttal→Rebuttal, protocol judge→protocol Judge, eval-judge→eval Judge. Test unknown role/phase fails before inner runtime; pre-populated schema is rejected to prevent accidental override.
+- [ ] **Step 1:** Add RED tests for all H4 mappings: baseline draft/final→Answer, research→Research, review→Review, challenge→Challenge, rebuttal→Rebuttal, protocol judge→protocol Judge, eval-judge→eval Judge. Test unknown role/phase fails before inner runtime; pre-populated schema is rejected to prevent accidental override; malformed/missing Claude `structured_output` fails as malformed output while raw envelope evidence remains logged.
 - [ ] **Step 2:** Add RED schema-parity tests that reflect JSON tags from `baseline.AnswerArtifact`, protocol artifact structs/nested citation structs, and `evalharness.JudgeArtifact`; assert schema `properties`, `required`, and `additionalProperties:false` match all required output fields.
-- [ ] **Step 3:** Implement frozen schemas with only provider-portable object/array/string/number/boolean rules. Keep `evalharness.JudgeArtifact.dimensions` as object with numeric `additionalProperties`; existing evaluator validates exact rubric dimension IDs and ranges.
+- [ ] **Step 3:** Implement frozen schemas with only provider-portable object/array/string/number/boolean rules. Keep `evalharness.JudgeArtifact.dimensions` as a closed object with exactly the five frozen rubric IDs as required numeric properties; existing evaluator still validates exact IDs and ranges as a postcondition.
 - [ ] **Step 4:** Update invocation evidence to hash the exact compact output schema when non-empty. Test legacy evidence omits the field and H4 evidence records the expected SHA-256. Run `go test ./internal/council/structuredoutput ./internal/council/invocationlog` and race tests.
 - [ ] **Step 5:** Commit `feat: freeze H4 structured output schemas`.
 
@@ -71,10 +71,10 @@
 **Interfaces:** produces exact `H4_FROZEN_SHA` on `main`.
 
 - [ ] **Step 1:** Normalize file modes (`*.go`, `*.md`, JSON/YAML 0644; executable scripts only 0755), verify clean status/diff-check, and rerun full quality gates on exact branch head.
-- [ ] **Step 2:** Push `feat/h4-structured-output`, open a PR against `main` tracking #24 without auto-closing it, and record exact head SHA plus frozen H4 dataset hashes.
+- [ ] **Step 2:** Push `feat/h4-structured-output`, open a PR against `main` tracking #25 without auto-closing it, and record exact head SHA plus frozen H4 dataset hashes.
 - [ ] **Step 3:** Require exact-head CI quality (gofmt/test/vet/golangci-lint) and CLA success. Any failure is debugged on the same branch with a new exact-head gate cycle.
 - [ ] **Step 4:** Re-fetch PR state and squash merge only when mergeable and all exact-head gates are terminal success, using `expected_head_sha`.
-- [ ] **Step 5:** Fetch `main`, record resulting signed merge SHA as `H4_FROZEN_SHA` in #24, and verify no H4 workflow/model run exists yet.
+- [ ] **Step 5:** Fetch `main`, record resulting signed merge SHA as `H4_FROZEN_SHA` in #25, and verify no H4 workflow/model run exists yet.
 
 ### Task 5: Add pinned H4 workflow/bootstrap and execute exactly once
 
@@ -87,8 +87,8 @@
 - [ ] **Step 3:** Implement H4 workflow pinned to `H4_FROZEN_SHA`; verify frozen dataset hashes/auth/repo tests, execute `go run ./cmd/agentd council benchmark h4 --dataset benchmarks/h4` exactly once, hash key/all artifacts, and upload full/partial evidence even on failure.
 - [ ] **Step 4:** Run full local gates plus bootstrap preflight, push ops branch, open PR, require exact-head CI/CLA, and squash merge with `expected_head_sha`.
 - [ ] **Step 5:** Verify merged workflow on `main`; pre-audit that zero H4 workflow runs and zero `h4-benchmark` runners exist; start exactly one ephemeral runner and wait for `Listening for Jobs`.
-- [ ] **Step 6:** Dispatch H4 workflow exactly once. Record workflow run ID, job ID, runner ID/name, trigger SHA, frozen SHA, and internal run ID in #24. Never redispatch automatically.
-- [ ] **Step 7:** On terminal state, download logs/artifact ZIP, verify ZIP/key-artifact SHA-256, frozen SHA/dataset hashes, invocation schema digests, A-F counts, problem count, `eval/batch-summary.json`, and `h4-result.json`. Close #24 only on a consistent successful final result; otherwise keep it open, preserve evidence, classify the exact initiating failure, and create a new version boundary for any semantic/transport change.
+- [ ] **Step 6:** Dispatch H4 workflow exactly once. Record workflow run ID, job ID, runner ID/name, trigger SHA, frozen SHA, and internal run ID in #25. Never redispatch automatically.
+- [ ] **Step 7:** On terminal state, download logs/artifact ZIP, verify ZIP/key-artifact SHA-256, frozen SHA/dataset hashes, invocation schema digests, A-F counts, problem count, `eval/batch-summary.json`, and `h4-result.json`. Close #25 only on a consistent successful final result; otherwise keep it open, preserve evidence, classify the exact initiating failure, and create a new version boundary for any semantic/transport change.
 
 ## Self-review
 

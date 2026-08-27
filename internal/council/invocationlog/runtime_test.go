@@ -159,3 +159,57 @@ func readEvidence(t *testing.T, path string) Evidence {
 	}
 	return got
 }
+
+func TestWrapPersistsOutputSchemaDigestWhenPresent(t *testing.T) {
+	root := t.TempDir()
+	wrapped := Wrap(&fakeRuntime{response: modelResponse()}, councilruntime.ProviderClaude)
+	schema := json.RawMessage(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`)
+	req := councilruntime.AgentRequest{
+		RunID: "h4-run", RunRoot: root, Participant: "p", Role: "baseline",
+		Phase: "baseline-final", Prompt: "prompt", OutputSchema: schema,
+	}
+	if _, err := wrapped.Run(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "invocations", "claude", "p", "baseline-final", "000001.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := json.Unmarshal(raw["output_schema_sha256"], &got); err != nil {
+		t.Fatalf("missing output_schema_sha256: %v; evidence=%s", err, data)
+	}
+	digest := sha256.Sum256(schema)
+	if want := hex.EncodeToString(digest[:]); got != want {
+		t.Fatalf("schema hash=%q want %q", got, want)
+	}
+}
+
+func TestWrapOmitsOutputSchemaDigestForLegacyRequest(t *testing.T) {
+	root := t.TempDir()
+	wrapped := Wrap(&fakeRuntime{response: modelResponse()}, councilruntime.ProviderClaude)
+	req := councilruntime.AgentRequest{
+		RunID: "h3-run", RunRoot: root, Participant: "p", Role: "baseline",
+		Phase: "baseline-final", Prompt: "prompt",
+	}
+	if _, err := wrapped.Run(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "invocations", "claude", "p", "baseline-final", "000001.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := raw["output_schema_sha256"]; exists {
+		t.Fatalf("legacy evidence unexpectedly includes output_schema_sha256: %s", data)
+	}
+}

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-27
 **Status:** approved under the project's standing automation-first approval
-**Tracks:** #24
+**Tracks:** #25
 
 ## Context
 
@@ -28,13 +28,13 @@ H1-H3 commands on later `main` must retain their previous prompt-only transport 
 
 Extend `runtime.AgentRequest` with optional `OutputSchema json.RawMessage`. Empty means legacy behavior. Non-empty schema must be one valid JSON object before any provider process starts.
 
-Claude runtime passes the compact schema inline with `--json-schema`. Codex runtime writes the compact schema to a temporary `0600` file outside the model workspace and run artifact tree, passes that path with `--output-schema`, and removes the file after the invocation. Schema materialization failure is a process/isolation failure; there is no prompt-only fallback.
+Claude runtime passes the compact schema inline with `--json-schema` and switches only schema-enabled calls from legacy `--output-format text` to `--output-format json`. Claude therefore emits a raw JSON result envelope; invocation logging records that envelope unchanged, and the H4 structured-output wrapper extracts only its `structured_output` object before existing strict decoding. Codex runtime writes the compact schema to a temporary `0600` file outside the model workspace and run artifact tree, passes that path with `--output-schema`, and removes the file after the invocation. Schema materialization or envelope extraction failure is fail-closed; there is no prompt-only fallback.
 
 `invocationlog.Evidence` records `output_schema_sha256,omitempty` when a schema is supplied, giving H4 an auditable contract digest while leaving legacy H1-H3 evidence shape unchanged when empty.
 
 ## Schema injection boundary
 
-H4 constructs the normal provider runtimes, wraps them with invocation logging, then wraps those runtimes with one H4 schema injector. The injector selects a frozen schema from request `role` + `phase` and sets `OutputSchema` only when it is currently empty. Unknown H4 role/phase combinations fail closed rather than running without a schema.
+H4 constructs the normal provider runtimes, wraps them with invocation logging, then wraps those runtimes with one H4 schema injector. The injector selects a frozen schema from request `role` + `phase`. It rejects pre-populated `OutputSchema` values so callers cannot override the frozen H4 contract. Unknown H4 role/phase combinations fail closed rather than running without a schema. The wrapper sits outside invocation logging, so logging receives the schema-bearing request and raw provider response before Claude envelope extraction.
 
 The schema injector covers every H4 model call:
 
@@ -52,7 +52,7 @@ This keeps baseline, protocol, and evaluator free of H4 conditionals. H1-H3 do n
 
 Schemas require an object, enumerate every top-level property, require every non-optional output field, and set `additionalProperties: false`. Nested evidence/citation objects are equally closed. Arrays have typed items. Numeric fields are typed as numbers and boolean fields as booleans.
 
-Provider compatibility takes precedence over encoding domain rules into JSON Schema. Score/confidence ranges, exact rubric dimension IDs, citation authority, and other semantic invariants remain enforced by existing Go validators after strict decoding. The eval `dimensions` field is therefore an object with numeric values; the evaluator continues to require exactly the frozen rubric dimension IDs.
+Provider compatibility takes precedence over encoding non-structural domain rules into JSON Schema. Score/confidence ranges, citation authority, and other semantic invariants remain enforced by existing Go validators after strict decoding. Because strict provider schemas require closed objects, eval `dimensions` is a closed object containing exactly the five frozen rubric IDs as required numeric properties; the evaluator still re-validates those exact IDs and score ranges as a postcondition.
 
 Schema definitions are versioned production data in a focused `structuredoutput` package. Tests reflect over the Go artifact structs and assert property/required-key parity so a struct change cannot silently drift from its H4 schema.
 
