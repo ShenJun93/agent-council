@@ -1,8 +1,10 @@
 package safestore
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -66,5 +68,27 @@ func TestWriteExclusiveCreatesNestedFileOnce(t *testing.T) {
 	}
 	if string(got) != "payload" {
 		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestWriteExclusiveAllowsConcurrentCreationUnderSharedParent(t *testing.T) {
+	root := t.TempDir()
+	const count = 64
+	var wg sync.WaitGroup
+	errs := make(chan error, count)
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := WriteExclusive(root, filepath.Join("a", "b", fmt.Sprintf("%03d.json", i)), []byte("x"))
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

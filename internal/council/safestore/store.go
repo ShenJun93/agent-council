@@ -107,7 +107,16 @@ func ensureParent(root, parent string) error {
 			}
 		case errors.Is(statErr, os.ErrNotExist):
 			if err := os.Mkdir(current, 0o750); err != nil {
-				return fmt.Errorf("create directory: %w", err)
+				if !errors.Is(err, os.ErrExist) {
+					return fmt.Errorf("create directory: %w", err)
+				}
+				info, statErr := os.Lstat(current)
+				if statErr != nil {
+					return fmt.Errorf("inspect concurrently created directory: %w", statErr)
+				}
+				if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+					return fmt.Errorf("path component is not a real directory: %s", current)
+				}
 			}
 		default:
 			return fmt.Errorf("inspect directory: %w", statErr)
