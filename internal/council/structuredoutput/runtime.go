@@ -59,7 +59,7 @@ func extractClaudeStructuredOutput(stdout string) (string, error) {
 	}
 	trimmed := bytes.TrimSpace(envelope.StructuredOutput)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return "", errors.New("Claude structured output envelope missing structured_output")
+		return "", errors.New("claude structured output envelope missing structured_output")
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &object); err != nil || object == nil {

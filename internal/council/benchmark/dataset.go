@@ -91,10 +91,12 @@ type datasetVersion struct {
 var h1DatasetVersion = datasetVersion{"H1", H1BenchmarkID, H1DatasetSchemaVersion, H1CasesSchemaVersion, H1RubricSchemaVersion}
 var h2DatasetVersion = datasetVersion{"H2", H2BenchmarkID, H2DatasetSchemaVersion, H2CasesSchemaVersion, H2RubricSchemaVersion}
 var h3DatasetVersion = datasetVersion{"H3", H3BenchmarkID, H3DatasetSchemaVersion, H3CasesSchemaVersion, H3RubricSchemaVersion}
+var h4DatasetVersion = datasetVersion{"H4", H4BenchmarkID, H4DatasetSchemaVersion, H4CasesSchemaVersion, H4RubricSchemaVersion}
 
 func LoadH1(root string) (Dataset, error) { return loadDataset(root, h1DatasetVersion) }
 func LoadH2(root string) (Dataset, error) { return loadDataset(root, h2DatasetVersion) }
 func LoadH3(root string) (Dataset, error) { return loadDataset(root, h3DatasetVersion) }
+func LoadH4(root string) (Dataset, error) { return loadDataset(root, h4DatasetVersion) }
 
 func loadDataset(root string, version datasetVersion) (Dataset, error) {
 	trimmedRoot := strings.TrimSpace(root)
