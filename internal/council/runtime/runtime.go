@@ -3,10 +3,12 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"time"
@@ -61,15 +63,16 @@ func (e *RunError) Unwrap() error {
 }
 
 type AgentRequest struct {
-	RunID       string
-	RunRoot     string
-	Participant string
-	Role        string
-	Phase       string
-	Prompt      string
-	Workdir     string
-	Timeout     time.Duration
-	Env         map[string]string
+	RunID        string
+	RunRoot      string
+	Participant  string
+	Role         string
+	Phase        string
+	Prompt       string
+	Workdir      string
+	Timeout      time.Duration
+	Env          map[string]string
+	OutputSchema json.RawMessage
 }
 
 type AgentResponse struct {
@@ -151,7 +154,7 @@ type cliRuntime struct {
 	goos      string
 	lookPath  func(string) (string, error)
 	authArgs  []string
-	runArgs   func(AgentRequest) []string
+	runArgs   func(AgentRequest, string) []string
 	checkAuth func(stdout, stderr string) error
 }
 
@@ -175,8 +178,8 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		goos:     goruntime.GOOS,
 		lookPath: exec.LookPath,
 		authArgs: []string{"auth", "status", "--json"},
-		runArgs: func(req AgentRequest) []string {
-			return []string{
+		runArgs: func(req AgentRequest, _ string) []string {
+			args := []string{
 				"--setting-sources", "",
 				"--settings", `{"autoMemoryEnabled":false}`,
 				"--tools", "",
@@ -187,9 +190,11 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 				"--no-chrome",
 				"--system-prompt", claudeCouncilSystemPrompt,
 				"-p", req.Prompt,
-				"--output-format", "text",
-				"--permission-mode", "plan",
 			}
+			if len(req.OutputSchema) > 0 {
+				args = append(args, "--json-schema", string(req.OutputSchema))
+			}
+			return append(args, "--output-format", "text", "--permission-mode", "plan")
 		},
 		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
@@ -209,8 +214,8 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 		goos:     goruntime.GOOS,
 		lookPath: exec.LookPath,
 		authArgs: []string{"login", "status"},
-		runArgs: func(req AgentRequest) []string {
-			return []string{
+		runArgs: func(req AgentRequest, schemaPath string) []string {
+			args := []string{
 				"exec",
 				"--ephemeral",
 				"--skip-git-repo-check",
@@ -230,8 +235,11 @@ func newCodexCLI(binary string, runner processRunner, environ func() []string) A
 				"-c", `default_permissions="council"`,
 				"-c", codexCouncilFilesystemProfile,
 				"-c", `agents.enabled=false`,
-				req.Prompt,
 			}
+			if schemaPath != "" {
+				args = append(args, "--output-schema", schemaPath)
+			}
+			return append(args, req.Prompt)
 		},
 		checkAuth: func(stdout, stderr string) error {
 			return preflight.ValidateCodexAuth(stdout + "\n" + stderr)
@@ -256,6 +264,30 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 				Err:   fmt.Errorf("codex resolves to Windows interop executable %q; install and use a native Linux Codex binary inside WSL2", resolved),
 			}
 		}
+	}
+
+	normalizedSchema, err := normalizeOutputSchema(req.OutputSchema)
+	if err != nil {
+		return AgentResponse{}, &RunError{Class: FailureProcess, Err: err}
+	}
+	req.OutputSchema = normalizedSchema
+	schemaPath := ""
+	if r.provider == ProviderCodex && len(normalizedSchema) > 0 {
+		var cleanupSchema func() error
+		schemaPath, cleanupSchema, err = materializeOutputSchema(req, normalizedSchema)
+		if err != nil {
+			return AgentResponse{}, &RunError{Class: FailureIsolation, Err: err}
+		}
+		defer func() {
+			if cleanupErr := cleanupSchema(); cleanupErr != nil {
+				isolationErr := &RunError{Class: FailureIsolation, Err: fmt.Errorf("clean output schema: %w", cleanupErr)}
+				if runErr == nil {
+					runErr = isolationErr
+				} else {
+					runErr = errors.Join(runErr, isolationErr)
+				}
+			}
+		}()
 	}
 
 	parentEnv := r.environ()
@@ -321,7 +353,7 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 	for attempt := 1; attempt <= 2; attempt++ {
 		result := r.runner.Run(runCtx, processSpec{
 			Command: r.binary,
-			Args:    r.runArgs(req),
+			Args:    r.runArgs(req, schemaPath),
 			Dir:     req.Workdir,
 			Env:     executionEnv,
 		})
@@ -345,6 +377,50 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 	}
 
 	return AgentResponse{}, &RunError{Class: FailureProcess, Err: errors.New("unreachable runtime state")}
+}
+
+func normalizeOutputSchema(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &object); err != nil {
+		return nil, fmt.Errorf("output schema must be one JSON object: %w", err)
+	}
+	if object == nil {
+		return nil, fmt.Errorf("output schema must be one JSON object")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return nil, fmt.Errorf("compact output schema: %w", err)
+	}
+	return json.RawMessage(compact.Bytes()), nil
+}
+
+func materializeOutputSchema(req AgentRequest, schema json.RawMessage) (string, func() error, error) {
+	dir, err := os.MkdirTemp("", "agent-council-output-schema-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create output schema directory: %w", err)
+	}
+	cleanup := func() error { return os.RemoveAll(dir) }
+	for label, root := range map[string]string{"run root": req.RunRoot, "workspace": req.Workdir} {
+		inside, checkErr := visibility.IsWithin(root, dir)
+		if checkErr != nil {
+			_ = cleanup()
+			return "", nil, fmt.Errorf("validate output schema against %s: %w", label, checkErr)
+		}
+		if inside {
+			_ = cleanup()
+			return "", nil, fmt.Errorf("output schema directory must be outside %s", label)
+		}
+	}
+	path := filepath.Join(dir, "schema.json")
+	if err := os.WriteFile(path, schema, 0o600); err != nil {
+		_ = cleanup()
+		return "", nil, fmt.Errorf("write output schema: %w", err)
+	}
+	return path, cleanup, nil
 }
 
 func looksLikeWindowsInteropExecutable(path string) bool {
