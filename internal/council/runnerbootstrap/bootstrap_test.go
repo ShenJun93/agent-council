@@ -14,6 +14,10 @@ func TestH1RunnerBootstrapPreflightAcceptsSubscriptionCLIs(t *testing.T) {
 	bin := t.TempDir()
 	writeFakeCLI(t, bin, "gh", `#!/bin/sh
 if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1 $2 $3 $4" = "api -X POST repos/ShenJun93/agent-council/actions/runners/registration-token" ]; then
+  echo '{"token":"test-registration-token"}'
+  exit 0
+fi
 exit 1
 `)
 	writeFakeCLI(t, bin, "claude", `#!/bin/sh
@@ -41,6 +45,46 @@ exit 1
 	}
 	if !strings.Contains(string(output), "H1 runner preflight OK") {
 		t.Fatalf("preflight output missing success marker: %s", output)
+	}
+}
+
+func TestH1RunnerBootstrapPreflightRejectsMissingRunnerRegistrationPermission(t *testing.T) {
+	t.Parallel()
+
+	bin := t.TempDir()
+	writeFakeCLI(t, bin, "gh", `#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1 $2 $3 $4" = "api -X POST repos/ShenJun93/agent-council/actions/runners/registration-token" ]; then
+  echo 'HTTP 403: Resource not accessible by personal access token' >&2
+  exit 1
+fi
+exit 1
+`)
+	writeFakeCLI(t, bin, "claude", `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "Claude Code v2.1.165"; exit 0; fi
+if [ "$1 $2" = "auth status" ]; then
+  echo '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"pro"}'
+  exit 0
+fi
+exit 1
+`)
+	writeFakeCLI(t, bin, "codex", `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "codex-cli 0.149.0"; exit 0; fi
+if [ "$1 $2" = "login status" ]; then echo "Logged in using ChatGPT"; exit 0; fi
+exit 1
+`)
+
+	cmd := exec.Command("/bin/bash", bootstrapScript(t), "--preflight-only")
+	cmd.Env = []string{
+		"PATH=" + bin + ":/usr/bin:/bin",
+		"HOME=" + t.TempDir(),
+	}
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("preflight accepted GitHub auth without runner registration permission: %s", output)
+	}
+	if !strings.Contains(string(output), "runner registration permission") {
+		t.Fatalf("unexpected rejection: %s", output)
 	}
 }
 

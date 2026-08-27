@@ -38,6 +38,9 @@ for cmd in gh claude codex; do
 done
 
 gh auth status >/dev/null 2>&1 || die "GitHub CLI is not authenticated; run: gh auth login"
+registration_token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token' 2>/dev/null)" || \
+  die "GitHub auth lacks runner registration permission; authenticate an admin token with repository access"
+[[ -n "$registration_token" ]] || die "GitHub auth lacks runner registration permission; registration token was empty"
 
 claude_version="$(claude --version 2>&1)" || die "claude --version failed"
 claude_status="$(claude auth status 2>&1)" || die "Claude Code is not authenticated"
@@ -62,12 +65,14 @@ case "$arch_name" in
 esac
 
 printf 'GitHub auth: OK\n'
+printf 'GitHub runner registration: OK\n'
 printf 'Claude: %s\n' "$claude_version"
 printf 'Codex: %s\n' "$codex_version"
 printf 'Host: %s/%s\n' "$os_name" "$runner_arch"
 printf 'H1 runner preflight OK\n'
 
 if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
+  unset registration_token
   exit 0
 fi
 
@@ -113,9 +118,6 @@ actual_hash="$(hash_file "$archive")"
 
 tar -xzf "$archive" -C "$runner_dir"
 rm -f "$archive"
-
-registration_token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
-[[ -n "$registration_token" ]] || die "failed to obtain GitHub runner registration token"
 
 host_name="$(uname -n | sed 's/[^A-Za-z0-9._-]/-/g')"
 runner_name="h1-${host_name}-$$"
