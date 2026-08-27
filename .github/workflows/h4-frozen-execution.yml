@@ -1,0 +1,162 @@
+name: H4 Frozen Execution
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: h4-frozen-execution
+  cancel-in-progress: false
+
+jobs:
+  h4:
+    name: h4-frozen-execution
+    if: github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - linux
+      - h4-benchmark
+    timeout-minutes: 1380
+
+    steps:
+      - name: Checkout frozen H4 commit
+        uses: actions/checkout@v7
+        with:
+          ref: 375be888a49e261667362063e8ec03a2c42e152f
+          clean: true
+          persist-credentials: false
+      - name: Set up Go 1.26
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify frozen checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "375be888a49e261667362063e8ec03a2c42e152f"
+          status="$(git status --short)"
+          test -z "$status"
+          mkdir -p .h4-audit
+          {
+            echo "trigger_sha=${GITHUB_SHA}"
+            echo "frozen_sha=$actual"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+          } | tee .h4-audit/preflight.txt
+          test "$(sha256sum benchmarks/h4/manifest.json | awk '{print $1}')" = "1286bbaa9bc630308f2cf81ac0811f11dc084c1d3092810b54ae3301eab0cad0"
+          test "$(sha256sum benchmarks/h4/rubric.json | awk '{print $1}')" = "6439c683279e3e7997bcfa19e42b8a42d1d354414c16d1e7a5cb6bd4141d6b39"
+          test "$(sha256sum benchmarks/h4/cases.json | awk '{print $1}')" = "1ec5d7aa3d36efbeffc53d4455143bb2a542326a954d77a77c006f8cbe77cfa8"
+          sha256sum benchmarks/h4/manifest.json benchmarks/h4/rubric.json benchmarks/h4/cases.json \
+            | tee .h4-audit/dataset.sha256
+      - name: Verify subscription CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "metered API credentials are forbidden for H4; unset $key" >&2
+              exit 1
+            fi
+          done
+          command -v claude | tee -a .h4-audit/preflight.txt
+          claude --version | tee -a .h4-audit/preflight.txt
+          claude_status="$(claude auth status 2>&1)"
+          printf '%s\n' "$claude_status" | tee -a .h4-audit/preflight.txt
+          grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status"
+          grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status"
+          grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status"
+          grep -Eq '"subscriptionType"[[:space:]]*:[[:space:]]*"[^\"]+"' <<<"$claude_status"
+          command -v codex | tee -a .h4-audit/preflight.txt
+          codex --version | tee -a .h4-audit/preflight.txt
+          codex_status="$(codex login status 2>&1)"
+          printf '%s\n' "$codex_status" | tee -a .h4-audit/preflight.txt
+          grep -Fq 'Logged in using ChatGPT' <<<"$codex_status"
+          go version | tee -a .h4-audit/preflight.txt
+      - name: Verify repository tests on frozen commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./... 2>&1 | tee .h4-audit/go-test.txt
+
+      - name: Execute H4 exactly once
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          go run ./cmd/agentd council benchmark h4 \
+            --dataset benchmarks/h4 \
+            > >(tee .h4-audit/h4-output.json) \
+            2> >(tee .h4-audit/h4-stderr.log >&2)
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" | tee .h4-audit/exit-code.txt
+          exit "$rc"
+
+      - name: Collect H4 audit evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .h4-audit
+          : > .h4-audit/key-artifacts.sha256
+          : > .h4-audit/all-artifacts.sha256
+          if [[ -d .council/runs ]]; then
+            mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+            printf 'run_dir_count=%d\n' "${#run_dirs[@]}" | tee -a .h4-audit/audit.txt
+            if [[ ${#run_dirs[@]} -eq 1 ]]; then
+              run_dir="${run_dirs[0]}"
+              printf 'run_dir=%s\n' "$run_dir" | tee -a .h4-audit/audit.txt
+              printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .h4-audit/audit.txt
+              for rel in h4-run.json eval/batch-summary.json h4-result.json; do
+                path="$run_dir/$rel"
+                if [[ -f "$path" ]]; then
+                  sha256sum "$path" | tee -a .h4-audit/key-artifacts.sha256
+                fi
+              done
+            fi
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> .h4-audit/all-artifacts.sha256
+            done < <(find .council/runs -type f -print0 | sort -z)
+          else
+            echo 'run_dir_count=0' | tee -a .h4-audit/audit.txt
+          fi
+          {
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "workflow_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [[ -f .h4-audit/exit-code.txt ]]; then
+              echo "benchmark_exit_code=$(cat .h4-audit/exit-code.txt)"
+            else
+              echo "benchmark_exit_code=not_started"
+            fi
+          } | tee -a .h4-audit/audit.txt
+
+          cat .h4-audit/audit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s .h4-audit/key-artifacts.sha256 ]]; then
+            {
+              echo
+              echo 'Key artifact SHA-256:'
+              echo '```text'
+              cat .h4-audit/key-artifacts.sha256
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload full or partial H4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h4-frozen-${{ github.run_id }}
+          path: |
+            .h4-audit
+            .council/runs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
