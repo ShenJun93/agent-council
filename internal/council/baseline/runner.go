@@ -29,6 +29,10 @@ var frozenArms = []Arm{
 	ArmFBlindCouncil,
 }
 
+func FrozenArms() []Arm {
+	return append([]Arm(nil), frozenArms...)
+}
+
 func (r Runner) RunAll(ctx context.Context, req RunRequest) ([]ArmResult, error) {
 	results := make([]ArmResult, 0, len(frozenArms))
 	for _, arm := range frozenArms {
