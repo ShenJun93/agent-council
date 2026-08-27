@@ -1,0 +1,154 @@
+name: H1 Frozen Execution
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/h1-frozen-execution.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: h1-frozen-execution
+  cancel-in-progress: false
+
+jobs:
+  h1:
+    name: h1-frozen-execution
+    if: github.event.before == '5f22d664495e40bd7460588c938191f500a8aa65'
+    runs-on:
+      - self-hosted
+      - linux
+      - h1-benchmark
+    timeout-minutes: 1380
+
+    steps:
+      - name: Checkout frozen H1 commit
+        uses: actions/checkout@v7
+        with:
+          ref: 5f22d664495e40bd7460588c938191f500a8aa65
+          clean: true
+          persist-credentials: false
+
+      - name: Set up Go 1.26
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify frozen checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "5f22d664495e40bd7460588c938191f500a8aa65"
+          status="$(git status --short)"
+          test -z "$status"
+          mkdir -p .h1-audit
+          {
+            echo "trigger_sha=${GITHUB_SHA}"
+            echo "trigger_before=${{ github.event.before }}"
+            echo "frozen_sha=$actual"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+          } | tee .h1-audit/preflight.txt
+
+      - name: Verify subscription CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v claude | tee -a .h1-audit/preflight.txt
+          claude --version | tee -a .h1-audit/preflight.txt
+          command -v codex | tee -a .h1-audit/preflight.txt
+          codex --version | tee -a .h1-audit/preflight.txt
+          go version | tee -a .h1-audit/preflight.txt
+
+      - name: Verify repository tests on frozen commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./... 2>&1 | tee .h1-audit/go-test.txt
+
+      - name: Execute H1 exactly once
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          go run ./cmd/agentd council benchmark h1 \
+            --dataset benchmarks/h1 \
+            > >(tee .h1-audit/h1-output.json) \
+            2> >(tee .h1-audit/h1-stderr.log >&2)
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" | tee .h1-audit/exit-code.txt
+          exit "$rc"
+
+      - name: Collect H1 audit evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .h1-audit
+          : > .h1-audit/key-artifacts.sha256
+          : > .h1-audit/all-artifacts.sha256
+
+          if [[ -d .council/runs ]]; then
+            mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+            printf 'run_dir_count=%d\n' "${#run_dirs[@]}" | tee -a .h1-audit/audit.txt
+            if [[ ${#run_dirs[@]} -eq 1 ]]; then
+              run_dir="${run_dirs[0]}"
+              printf 'run_dir=%s\n' "$run_dir" | tee -a .h1-audit/audit.txt
+              printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .h1-audit/audit.txt
+
+              for rel in h1-run.json eval/batch-summary.json h1-result.json; do
+                path="$run_dir/$rel"
+                if [[ -f "$path" ]]; then
+                  sha256sum "$path" | tee -a .h1-audit/key-artifacts.sha256
+                fi
+              done
+            fi
+
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> .h1-audit/all-artifacts.sha256
+            done < <(find .council/runs -type f -print0 | sort -z)
+          else
+            echo 'run_dir_count=0' | tee -a .h1-audit/audit.txt
+          fi
+
+          {
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "workflow_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [[ -f .h1-audit/exit-code.txt ]]; then
+              echo "benchmark_exit_code=$(cat .h1-audit/exit-code.txt)"
+            else
+              echo "benchmark_exit_code=not_started"
+            fi
+          } | tee -a .h1-audit/audit.txt
+
+          cat .h1-audit/audit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s .h1-audit/key-artifacts.sha256 ]]; then
+            {
+              echo
+              echo 'Key artifact SHA-256:'
+              echo '```text'
+              cat .h1-audit/key-artifacts.sha256
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload full or partial H1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1-frozen-${{ github.run_id }}
+          path: |
+            .h1-audit
+            .council/runs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
