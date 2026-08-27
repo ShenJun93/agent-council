@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ShenJun93/agent-council/internal/council/modeloutput"
 	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 	"github.com/ShenJun93/agent-council/internal/council/visibility"
 )
@@ -311,17 +312,8 @@ func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifac
 }
 
 func decodeStrictJSON(phase, raw string, out any) error {
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(out); err != nil {
-		return malformed(phase, fmt.Errorf("decode JSON output: %w", err))
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return malformed(phase, fmt.Errorf("multiple JSON values in output"))
-		}
-		return malformed(phase, fmt.Errorf("trailing output: %w", err))
+	if err := modeloutput.DecodeStrict(raw, out); err != nil {
+		return malformed(phase, err)
 	}
 	return nil
 }
