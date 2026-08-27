@@ -41,10 +41,18 @@ type RunRequest struct {
 	NormalizedProblem json.RawMessage
 }
 
+type CitationAuthority uint8
+
+const (
+	CitationAuthorityVisibleArtifacts CitationAuthority = iota
+	CitationAuthorityProblemOnlyFinal
+)
+
 type Runner struct {
 	Claude             councilruntime.AgentRuntime
 	Codex              councilruntime.AgentRuntime
 	TempRoot           string
 	ChallengerProvider councilruntime.Provider
 	ChallengePolicy    protocol.ChallengePolicy
+	CitationAuthority  CitationAuthority
 }
