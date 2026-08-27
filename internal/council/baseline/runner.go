@@ -65,6 +65,9 @@ func (r Runner) RunArm(ctx context.Context, req RunRequest, arm Arm) (ArmResult,
 	if r.ChallengerProvider != councilruntime.ProviderClaude && r.ChallengerProvider != councilruntime.ProviderCodex {
 		return ArmResult{}, fmt.Errorf("challenger provider must be explicitly set to claude or codex")
 	}
+	if r.CitationAuthority != CitationAuthorityVisibleArtifacts && r.CitationAuthority != CitationAuthorityProblemOnlyFinal {
+		return ArmResult{}, fmt.Errorf("unsupported citation authority %d", r.CitationAuthority)
+	}
 
 	normalized := RunRequest{RunID: req.RunID, RunRoot: req.RunRoot, NormalizedProblem: problem}
 	switch arm {
@@ -125,12 +128,13 @@ func protocolRequest(req RunRequest) protocol.RunRequest {
 
 func (r Runner) runSingle(ctx context.Context, req RunRequest, rt councilruntime.AgentRuntime, participant string) (AnswerArtifact, error) {
 	problem := visibility.Artifact{ID: "problem", RelativePath: "context/problem.json", Content: req.NormalizedProblem}
-	return r.invokeAnswer(ctx, req, rt, participant, "baseline-final", []visibility.Artifact{problem}, []string{"problem"}, finalInstruction())
+	visible := []string{"problem"}
+	return r.invokeAnswer(ctx, req, rt, participant, "baseline-final", []visibility.Artifact{problem}, visible, r.finalCitableIDs(visible), finalInstruction())
 }
 
 func (r Runner) runSelfReview(ctx context.Context, req RunRequest, rt councilruntime.AgentRuntime, participant string) (AnswerArtifact, error) {
 	problem := visibility.Artifact{ID: "problem", RelativePath: "context/problem.json", Content: req.NormalizedProblem}
-	draft, err := r.invokeAnswer(ctx, req, rt, participant, "baseline-draft", []visibility.Artifact{problem}, []string{"problem"}, draftInstruction())
+	draft, err := r.invokeAnswer(ctx, req, rt, participant, "baseline-draft", []visibility.Artifact{problem}, []string{"problem"}, []string{"problem"}, draftInstruction())
 	if err != nil {
 		return AnswerArtifact{}, err
 	}
@@ -142,7 +146,8 @@ func (r Runner) runSelfReview(ctx context.Context, req RunRequest, rt councilrun
 		problem,
 		{ID: "draft", RelativePath: "context/draft.json", Content: draftBytes},
 	}
-	return r.invokeAnswer(ctx, req, rt, participant, "baseline-final", artifacts, []string{"problem", "draft"}, selfReviewInstruction())
+	visible := []string{"problem", "draft"}
+	return r.invokeAnswer(ctx, req, rt, participant, "baseline-final", artifacts, visible, r.finalCitableIDs(visible), selfReviewInstruction())
 }
 
 func (r Runner) invokeAnswer(
@@ -152,11 +157,12 @@ func (r Runner) invokeAnswer(
 	participant string,
 	phase string,
 	artifacts []visibility.Artifact,
-	allowedIDs []string,
+	visibleIDs []string,
+	citableIDs []string,
 	instruction string,
 ) (AnswerArtifact, error) {
-	grants := make([]visibility.Grant, 0, len(allowedIDs))
-	for _, id := range allowedIDs {
+	grants := make([]visibility.Grant, 0, len(visibleIDs))
+	for _, id := range visibleIDs {
 		grants = append(grants, visibility.Grant{Participant: participant, Phase: phase, ArtifactID: id})
 	}
 	workspace, err := visibility.Materialize(visibility.Request{
@@ -170,7 +176,7 @@ func (r Runner) invokeAnswer(
 		return AnswerArtifact{}, &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: err}
 	}
 
-	prompt, renderErr := renderPrompt(workspace, artifacts, allowedIDs, instruction)
+	prompt, renderErr := renderPrompt(workspace, artifacts, visibleIDs, citableIDs, instruction)
 	if renderErr != nil {
 		cleanupErr := workspace.Cleanup()
 		if cleanupErr != nil {
@@ -209,21 +215,37 @@ func (r Runner) invokeAnswer(
 	if answer.Confidence < 0 || answer.Confidence > 1 {
 		return AnswerArtifact{}, malformed(fmt.Errorf("confidence %.4f must be between 0 and 1", answer.Confidence))
 	}
+	if err := validateAnswerCitations(answer, citableIDs); err != nil {
+		return AnswerArtifact{}, malformed(err)
+	}
 	return answer, nil
 }
 
-func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifact, allowedIDs []string, instruction string) (string, error) {
+func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifact, visibleIDs, citableIDs []string, instruction string) (string, error) {
 	byID := make(map[string]visibility.Artifact, len(artifacts))
 	for _, artifact := range artifacts {
 		byID[artifact.ID] = artifact
 	}
-	allowed := append([]string(nil), allowedIDs...)
-	sort.Strings(allowed)
+	visible := append([]string(nil), visibleIDs...)
+	sort.Strings(visible)
+	citable := append([]string(nil), citableIDs...)
+	sort.Strings(citable)
+	visibleSet := make(map[string]struct{}, len(visible))
+	for _, id := range visible {
+		visibleSet[id] = struct{}{}
+	}
+	for _, id := range citable {
+		if _, ok := visibleSet[id]; !ok {
+			return "", fmt.Errorf("citable artifact %q is not visible", id)
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString(instruction)
+	b.WriteString("\nCITABLE_ARTIFACT_IDS: ")
+	b.WriteString(strings.Join(citable, ","))
 	b.WriteString("\n\nVISIBLE_ARTIFACTS_BEGIN\n")
-	for _, id := range allowed {
+	for _, id := range visible {
 		artifact, ok := byID[id]
 		if !ok {
 			return "", fmt.Errorf("allowed artifact %q is missing", id)
@@ -240,6 +262,29 @@ func renderPrompt(workspace visibility.Workspace, artifacts []visibility.Artifac
 	}
 	b.WriteString("VISIBLE_ARTIFACTS_END\n")
 	return b.String(), nil
+}
+
+func (r Runner) finalCitableIDs(visible []string) []string {
+	if r.CitationAuthority == CitationAuthorityProblemOnlyFinal {
+		return []string{"problem"}
+	}
+	return append([]string(nil), visible...)
+}
+
+func validateAnswerCitations(answer AnswerArtifact, citableIDs []string) error {
+	allowed := make(map[string]struct{}, len(citableIDs))
+	for _, id := range citableIDs {
+		allowed[id] = struct{}{}
+	}
+	for _, citation := range answer.Citations {
+		if _, ok := allowed[citation.ArtifactID]; !ok {
+			return fmt.Errorf("citation artifact %q is not citable", citation.ArtifactID)
+		}
+		if strings.TrimSpace(citation.Locator) == "" {
+			return fmt.Errorf("citation locator is required")
+		}
+	}
+	return nil
 }
 
 func validateNormalizedProblem(raw json.RawMessage) (json.RawMessage, error) {
@@ -278,15 +323,15 @@ func malformed(err error) error {
 
 func draftInstruction() string {
 	return `BASELINE_DRAFT
-Work independently and answer the normalized problem. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only visible artifact IDs.`
+Work independently and answer the normalized problem. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only artifact IDs listed in CITABLE_ARTIFACT_IDS.`
 }
 
 func finalInstruction() string {
 	return `BASELINE_FINAL
-Work independently and answer the normalized problem without peer review. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only visible artifact IDs.`
+Work independently and answer the normalized problem without peer review. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only artifact IDs listed in CITABLE_ARTIFACT_IDS.`
 }
 
 func selfReviewInstruction() string {
 	return `BASELINE_SELF_REVIEW
-Review your own draft against the normalized problem, correct errors if warranted, and produce the final answer. Do not infer peer output or consensus. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only visible artifact IDs.`
+Review your own draft against the normalized problem, correct errors if warranted, and produce a self-contained final answer. Do not mention the draft, review process, arm, provider, peer output, or consensus. Return JSON only with exactly: decision (string), action (string), reasons (string[]), assumptions (string[]), risks (string[]), citations ({artifact_id,locator,claim}[]), confidence (0..1). Citations may reference only artifact IDs listed in CITABLE_ARTIFACT_IDS.`
 }
