@@ -1,6 +1,7 @@
 name: H1 Frozen Execution
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   h1:
     name: h1-frozen-execution
-    if: github.event.before == '5f22d664495e40bd7460588c938191f500a8aa65'
+    if: github.event_name == 'workflow_dispatch' || github.event.before == '5f22d664495e40bd7460588c938191f500a8aa65'
     runs-on:
       - self-hosted
       - linux
