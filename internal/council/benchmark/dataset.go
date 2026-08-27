@@ -80,18 +80,32 @@ type rubricDimension struct {
 	Description string  `json:"description"`
 }
 
-func LoadH1(root string) (Dataset, error) {
+type datasetVersion struct {
+	label         string
+	benchmarkID   string
+	datasetSchema string
+	casesSchema   string
+	rubricSchema  string
+}
+
+var h1DatasetVersion = datasetVersion{"H1", H1BenchmarkID, H1DatasetSchemaVersion, H1CasesSchemaVersion, H1RubricSchemaVersion}
+var h2DatasetVersion = datasetVersion{"H2", H2BenchmarkID, H2DatasetSchemaVersion, H2CasesSchemaVersion, H2RubricSchemaVersion}
+
+func LoadH1(root string) (Dataset, error) { return loadDataset(root, h1DatasetVersion) }
+func LoadH2(root string) (Dataset, error) { return loadDataset(root, h2DatasetVersion) }
+
+func loadDataset(root string, version datasetVersion) (Dataset, error) {
 	trimmedRoot := strings.TrimSpace(root)
 	if trimmedRoot == "" {
-		return Dataset{}, fmt.Errorf("H1 dataset root is required")
+		return Dataset{}, fmt.Errorf("%s dataset root is required", version.label)
 	}
 	root = filepath.Clean(trimmedRoot)
 	info, err := os.Lstat(root)
 	if err != nil {
-		return Dataset{}, fmt.Errorf("stat H1 dataset root: %w", err)
+		return Dataset{}, fmt.Errorf("stat %s dataset root: %w", version.label, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return Dataset{}, fmt.Errorf("H1 dataset root must be a real directory")
+		return Dataset{}, fmt.Errorf("%s dataset root must be a real directory", version.label)
 	}
 
 	manifestBytes, err := readDatasetFile(root, "manifest.json")
@@ -111,10 +125,10 @@ func LoadH1(root string) (Dataset, error) {
 	if err := decodeStrict("manifest.json", manifestBytes, &manifest); err != nil {
 		return Dataset{}, err
 	}
-	if err := validateManifest(manifest, rubricBytes, casesBytes); err != nil {
+	if err := validateManifest(manifest, rubricBytes, casesBytes, version); err != nil {
 		return Dataset{}, err
 	}
-	if err := validateRubric(rubricBytes); err != nil {
+	if err := validateRubric(rubricBytes, version); err != nil {
 		return Dataset{}, err
 	}
 
@@ -122,8 +136,8 @@ func LoadH1(root string) (Dataset, error) {
 	if err := decodeStrict("cases.json", casesBytes, &document); err != nil {
 		return Dataset{}, err
 	}
-	if document.SchemaVersion != H1CasesSchemaVersion {
-		return Dataset{}, fmt.Errorf("cases schema_version %q, want %q", document.SchemaVersion, H1CasesSchemaVersion)
+	if document.SchemaVersion != version.casesSchema {
+		return Dataset{}, fmt.Errorf("cases schema_version %q, want %q", document.SchemaVersion, version.casesSchema)
 	}
 	if len(document.Cases) != H1CaseCount {
 		return Dataset{}, fmt.Errorf("cases count %d, want %d", len(document.Cases), H1CaseCount)
@@ -209,12 +223,12 @@ func LoadH1(root string) (Dataset, error) {
 	}, nil
 }
 
-func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte) error {
-	if manifest.SchemaVersion != H1DatasetSchemaVersion {
-		return fmt.Errorf("manifest schema_version %q, want %q", manifest.SchemaVersion, H1DatasetSchemaVersion)
+func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte, version datasetVersion) error {
+	if manifest.SchemaVersion != version.datasetSchema {
+		return fmt.Errorf("manifest schema_version %q, want %q", manifest.SchemaVersion, version.datasetSchema)
 	}
-	if manifest.BenchmarkID != H1BenchmarkID {
-		return fmt.Errorf("manifest benchmark_id %q, want %q", manifest.BenchmarkID, H1BenchmarkID)
+	if manifest.BenchmarkID != version.benchmarkID {
+		return fmt.Errorf("manifest benchmark_id %q, want %q", manifest.BenchmarkID, version.benchmarkID)
 	}
 	if manifest.CaseCount != H1CaseCount {
 		return fmt.Errorf("manifest case_count %d, want %d", manifest.CaseCount, H1CaseCount)
@@ -242,16 +256,16 @@ func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte) error {
 	return verifyDigest("cases file", casesBytes, manifest.CasesSHA256)
 }
 
-func validateRubric(raw []byte) error {
+func validateRubric(raw []byte, version datasetVersion) error {
 	var rubric rubricDocument
 	if err := decodeStrict("rubric.json", raw, &rubric); err != nil {
 		return err
 	}
-	if rubric.SchemaVersion != H1RubricSchemaVersion {
-		return fmt.Errorf("rubric schema_version %q, want %q", rubric.SchemaVersion, H1RubricSchemaVersion)
+	if rubric.SchemaVersion != version.rubricSchema {
+		return fmt.Errorf("rubric schema_version %q, want %q", rubric.SchemaVersion, version.rubricSchema)
 	}
 	if rubric.OverallScoreRule != h1OverallScoreRule {
-		return fmt.Errorf("rubric overall_score_rule differs from frozen H1 rule")
+		return fmt.Errorf("rubric overall_score_rule differs from frozen shared rule")
 	}
 	if len(rubric.Dimensions) != len(h1RubricDimensionIDs) {
 		return fmt.Errorf("rubric dimension count %d, want %d", len(rubric.Dimensions), len(h1RubricDimensionIDs))
@@ -384,14 +398,14 @@ func readDatasetFile(root, name string) ([]byte, error) {
 	path := filepath.Join(root, name)
 	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("stat H1 dataset file %q: %w", name, err)
+		return nil, fmt.Errorf("stat dataset file %q: %w", name, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("H1 dataset file %q must be a regular non-symlink file", name)
+		return nil, fmt.Errorf("dataset file %q must be a regular non-symlink file", name)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read H1 dataset file %q: %w", name, err)
+		return nil, fmt.Errorf("read dataset file %q: %w", name, err)
 	}
 	return data, nil
 }

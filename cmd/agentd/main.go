@@ -38,10 +38,14 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithH1Executor(args, stdout, stderr, executeH1Benchmark)
+	return runWithBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark)
 }
 
 func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Executor) int {
+	return runWithBenchmarkExecutors(args, stdout, stderr, execute, nil)
+}
+
+func runWithBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
 	if len(args) < 2 || args[0] != "council" {
 		printUsage(stderr)
 		return 2
@@ -53,7 +57,7 @@ func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Execut
 	case "doctor":
 		return runCouncilDoctor(args[2:], stdout, stderr)
 	case "benchmark":
-		return runCouncilBenchmark(args[2:], stdout, stderr, execute)
+		return runCouncilBenchmark(args[2:], stdout, stderr, executeH1, executeH2)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
 		printUsage(stderr)
@@ -102,13 +106,22 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runCouncilBenchmark(args []string, stdout, stderr io.Writer, execute h1Executor) int {
-	if len(args) == 0 || args[0] != "h1" {
-		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1 subcommand")
+func runCouncilBenchmark(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1 or h2 subcommand")
 		printUsage(stderr)
 		return 2
 	}
-	return runCouncilBenchmarkH1(args[1:], stdout, stderr, execute)
+	switch args[0] {
+	case "h1":
+		return runCouncilBenchmarkH1(args[1:], stdout, stderr, executeH1)
+	case "h2":
+		return runCouncilBenchmarkH2(args[1:], stdout, stderr, executeH2)
+	default:
+		_, _ = fmt.Fprintf(stderr, "unknown benchmark version %q\n", args[0])
+		printUsage(stderr)
+		return 2
+	}
 }
 
 func runCouncilBenchmarkH1(args []string, stdout, stderr io.Writer, execute h1Executor) int {
@@ -249,5 +262,6 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "usage:")
 	_, _ = fmt.Fprintln(w, "  agentd council run [flags] <problem.md>")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h1 [--dataset benchmarks/h1] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark h2 [--dataset benchmarks/h2] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }
