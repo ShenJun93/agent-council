@@ -47,6 +47,10 @@ func TestClaudeRuntimePassesInlineStructuredOutputSchema(t *testing.T) {
 	if got != want {
 		t.Fatalf("schema=%q want %q", got, want)
 	}
+	format, ok := argValue(runner.specs[1].Args, "--output-format")
+	if !ok || format != "json" {
+		t.Fatalf("Claude structured output format=%q present=%v want json", format, ok)
+	}
 }
 
 type schemaInspectRunner struct {

@@ -191,10 +191,12 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 				"--system-prompt", claudeCouncilSystemPrompt,
 				"-p", req.Prompt,
 			}
+			outputFormat := "text"
 			if len(req.OutputSchema) > 0 {
 				args = append(args, "--json-schema", string(req.OutputSchema))
+				outputFormat = "json"
 			}
-			return append(args, "--output-format", "text", "--permission-mode", "plan")
+			return append(args, "--output-format", outputFormat, "--permission-mode", "plan")
 		},
 		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
