@@ -60,7 +60,7 @@ func runH2Problem(
 		ReferenceSet:       problem.ReferenceSet,
 		ReferenceSetSHA256: problem.ReferenceSetSHA256,
 		Arms:               arms,
-		RiskPolicy:         H1RiskPolicy,
+		RiskPolicy:         H2RiskPolicy,
 	})
 	if err != nil {
 		return evalharness.ProblemResult{}, fmt.Errorf("evaluation: %w", err)
@@ -68,7 +68,7 @@ func runH2Problem(
 	if evaluated.ProblemID != problem.ID {
 		return evalharness.ProblemResult{}, fmt.Errorf("evaluation returned problem id %q want %q", evaluated.ProblemID, problem.ID)
 	}
-	if evaluated.RiskPolicy != H1RiskPolicy {
+	if evaluated.RiskPolicy != H2RiskPolicy {
 		return evalharness.ProblemResult{}, fmt.Errorf("evaluation returned non-H2 risk policy")
 	}
 	return evaluated, nil
