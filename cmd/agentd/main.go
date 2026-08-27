@@ -38,14 +38,18 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark)
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark)
 }
 
 func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Executor) int {
-	return runWithBenchmarkExecutors(args, stdout, stderr, execute, nil)
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, execute, nil, nil)
 }
 
 func runWithBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, nil)
+}
+
+func runWithAllBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor) int {
 	if len(args) < 2 || args[0] != "council" {
 		printUsage(stderr)
 		return 2
@@ -57,7 +61,7 @@ func runWithBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH
 	case "doctor":
 		return runCouncilDoctor(args[2:], stdout, stderr)
 	case "benchmark":
-		return runCouncilBenchmark(args[2:], stdout, stderr, executeH1, executeH2)
+		return runCouncilBenchmarkAll(args[2:], stdout, stderr, executeH1, executeH2, executeH3)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown council command %q\n", args[1])
 		printUsage(stderr)
@@ -107,8 +111,12 @@ func runCouncilRun(args []string, stdout, stderr io.Writer) int {
 }
 
 func runCouncilBenchmark(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor) int {
+	return runCouncilBenchmarkAll(args, stdout, stderr, executeH1, executeH2, nil)
+}
+
+func runCouncilBenchmarkAll(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1 or h2 subcommand")
+		_, _ = fmt.Fprintln(stderr, "agentd council benchmark requires the h1, h2, or h3 subcommand")
 		printUsage(stderr)
 		return 2
 	}
@@ -117,6 +125,8 @@ func runCouncilBenchmark(args []string, stdout, stderr io.Writer, executeH1 h1Ex
 		return runCouncilBenchmarkH1(args[1:], stdout, stderr, executeH1)
 	case "h2":
 		return runCouncilBenchmarkH2(args[1:], stdout, stderr, executeH2)
+	case "h3":
+		return runCouncilBenchmarkH3(args[1:], stdout, stderr, executeH3)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown benchmark version %q\n", args[0])
 		printUsage(stderr)
