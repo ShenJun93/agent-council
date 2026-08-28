@@ -55,3 +55,64 @@ func TestCouncilBrokerSubmitReadsNonceAndResumesHumanRuntime(t *testing.T) {
 		t.Fatalf("output=%v", out)
 	}
 }
+
+func TestCouncilBrokerShowPrintsPasteablePrompt(t *testing.T) {
+	root := t.TempDir()
+	rt := &humanbroker.Runtime{WaitTimeout: 50 * time.Millisecond, PollInterval: 5 * time.Millisecond, NewRequestID: func() (string, error) { return "req-show", nil }, NewNonce: func() (string, error) { return "nonce-show", nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := rt.Run(ctx, councilruntime.AgentRequest{RunID: "h5", RunRoot: root, SlotID: "reviewer-1", Participant: "reviewer-1", Role: "reviewer", Phase: "cross-review", Prompt: "REVIEW ME", OutputSchema: json.RawMessage(`{"type":"object"}`)})
+		done <- err
+	}()
+	waitForBrokerRequest(t, filepath.Join(root, "human-broker", "req-show", "request.json"))
+	var stdout, stderr bytes.Buffer
+	code := runWithH5BenchmarkExecutors([]string{"council", "broker", "show", "--run-root", root, "--request-id", "req-show"}, &stdout, &stderr, nil, nil, nil, nil, nil)
+	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte("REVIEW ME")) || !bytes.Contains(stdout.Bytes(), []byte("TRANSPORT_OUTPUT_SCHEMA_BEGIN")) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	cancel()
+	<-done
+}
+
+func TestCouncilBrokerPendingListsOnlyUnansweredRequests(t *testing.T) {
+	root := t.TempDir()
+	makePendingBrokerRequest(t, root, "req-pending", "nonce-pending")
+	makePendingBrokerRequest(t, root, "req-done", "nonce-done")
+	if err := humanbroker.SubmitResponse(root, humanbroker.Submission{RequestID: "req-done", Nonce: "nonce-done", FreshSession: true, RawResponse: `{"ok":true}`}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithH5BenchmarkExecutors([]string{"council", "broker", "pending", "--run-root", root}, &stdout, &stderr, nil, nil, nil, nil, nil)
+	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte("req-pending")) || bytes.Contains(stdout.Bytes(), []byte("req-done")) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func waitForBrokerRequest(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("broker request not created: %s", path)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func makePendingBrokerRequest(t *testing.T, root, requestID, nonce string) {
+	t.Helper()
+	rt := &humanbroker.Runtime{WaitTimeout: 30 * time.Millisecond, PollInterval: 5 * time.Millisecond, NewRequestID: func() (string, error) { return requestID, nil }, NewNonce: func() (string, error) { return nonce, nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := rt.Run(ctx, councilruntime.AgentRequest{RunID: "h5", RunRoot: root, SlotID: "reviewer-1", Participant: "reviewer-1", Role: "reviewer", Phase: "cross-review", Prompt: "REVIEW", OutputSchema: json.RawMessage(`{"type":"object"}`)})
+		done <- err
+	}()
+	waitForBrokerRequest(t, filepath.Join(root, "human-broker", requestID, "request.json"))
+	cancel()
+	<-done
+}

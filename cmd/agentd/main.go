@@ -53,8 +53,18 @@ func runWithH5BenchmarkExecutors(args []string, stdout, stderr io.Writer, execut
 }
 
 func runCouncilBroker(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "submit" {
-		_, _ = fmt.Fprintln(stderr, "agentd council broker requires the submit subcommand")
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(stderr, "agentd council broker requires pending, show, or submit")
+		return 2
+	}
+	if args[0] == "pending" {
+		return runCouncilBrokerPending(args[1:], stdout, stderr)
+	}
+	if args[0] == "show" {
+		return runCouncilBrokerShow(args[1:], stdout, stderr)
+	}
+	if args[0] != "submit" {
+		_, _ = fmt.Fprintln(stderr, "agentd council broker requires pending, show, or submit")
 		return 2
 	}
 	fs := flag.NewFlagSet("agentd council broker submit", flag.ContinueOnError)
@@ -95,6 +105,50 @@ func runCouncilBroker(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return encodeBrokerSubmission(stdout, stderr, *requestID)
+}
+
+func runCouncilBrokerPending(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("agentd council broker pending", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	runRoot := fs.String("run-root", "", "H5 run root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 || *runRoot == "" {
+		_, _ = fmt.Fprintln(stderr, "broker pending requires --run-root")
+		return 2
+	}
+	pending, err := humanbroker.ListPending(*runRoot)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "list broker requests: %v\n", err)
+		return 1
+	}
+	if err := json.NewEncoder(stdout).Encode(pending); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write broker pending output: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runCouncilBrokerShow(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("agentd council broker show", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	runRoot := fs.String("run-root", "", "H5 run root")
+	requestID := fs.String("request-id", "", "human broker request id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 || *runRoot == "" || *requestID == "" {
+		_, _ = fmt.Fprintln(stderr, "broker show requires --run-root and --request-id")
+		return 2
+	}
+	packet, err := humanbroker.LoadRequest(*runRoot, *requestID)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "load broker request: %v\n", err)
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, packet.PasteablePrompt)
+	return 0
 }
 
 func encodeBrokerSubmission(stdout, stderr io.Writer, requestID string) int {
