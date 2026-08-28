@@ -36,7 +36,14 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 		return resp, runErr
 	}
 	switch resp.Provider {
-	case councilruntime.ProviderCodex:
+	case councilruntime.ProviderCodex, councilruntime.ProviderChatGPT:
+		return resp, nil
+	case councilruntime.ProviderAntigravity:
+		payload, err := extractAntigravityStructuredOutput(resp.Stdout)
+		if err != nil {
+			return resp, malformed(err)
+		}
+		resp.Stdout = payload
 		return resp, nil
 	case councilruntime.ProviderClaude:
 		payload, err := extractClaudeStructuredOutput(resp.Stdout)
@@ -48,6 +55,33 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	default:
 		return resp, isolation(fmt.Errorf("unsupported provider %q", resp.Provider))
 	}
+}
+
+func extractAntigravityStructuredOutput(stdout string) (string, error) {
+	var envelope struct {
+		Status           string          `json:"status"`
+		Error            string          `json:"error"`
+		StructuredOutput json.RawMessage `json:"structured_output"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		return "", fmt.Errorf("decode Antigravity structured output envelope: %w", err)
+	}
+	if envelope.Status != "SUCCESS" {
+		return "", fmt.Errorf("antigravity structured output status %q: %s", envelope.Status, envelope.Error)
+	}
+	trimmed := bytes.TrimSpace(envelope.StructuredOutput)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", errors.New("antigravity structured output envelope missing structured_output")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &object); err != nil || object == nil {
+		return "", errors.New("antigravity structured_output must be one JSON object")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return "", fmt.Errorf("compact Antigravity structured_output: %w", err)
+	}
+	return compact.String(), nil
 }
 
 func extractClaudeStructuredOutput(stdout string) (string, error) {

@@ -19,6 +19,8 @@ var blockedEnvironment = map[string]struct{}{
 	"OPENAI_API_KEY":          {},
 	"CODEX_API_KEY":           {},
 	"CLAUDE_CODE_OAUTH_TOKEN": {},
+	"GEMINI_API_KEY":          {},
+	"GOOGLE_API_KEY":          {},
 }
 
 var allowedEnvironment = map[string]struct{}{

@@ -24,8 +24,10 @@ const codexCouncilFilesystemProfile = `permissions.council.filesystem={":root"="
 type Provider string
 
 const (
-	ProviderClaude Provider = "claude"
-	ProviderCodex  Provider = "codex"
+	ProviderClaude      Provider = "claude"
+	ProviderCodex       Provider = "codex"
+	ProviderChatGPT     Provider = "chatgpt"
+	ProviderAntigravity Provider = "antigravity"
 )
 
 type FailureClass string
@@ -38,6 +40,8 @@ const (
 	FailureIsolation              FailureClass = "isolation_failure"
 	FailureProcess                FailureClass = "process_failure"
 	FailureMalformedOutput        FailureClass = "malformed_output"
+	FailureAdapterUnavailable     FailureClass = "adapter_unavailable"
+	FailureAdapterPoolExhausted   FailureClass = "adapter_pool_exhausted"
 )
 
 type RunError struct {
@@ -63,26 +67,36 @@ func (e *RunError) Unwrap() error {
 }
 
 type AgentRequest struct {
-	RunID        string
-	RunRoot      string
-	Participant  string
-	Role         string
-	Phase        string
-	Prompt       string
-	Workdir      string
-	Timeout      time.Duration
-	Env          map[string]string
-	OutputSchema json.RawMessage
+	RunID                   string
+	RunRoot                 string
+	Participant             string
+	Role                    string
+	Phase                   string
+	Prompt                  string
+	Workdir                 string
+	Timeout                 time.Duration
+	Env                     map[string]string
+	OutputSchema            json.RawMessage
+	MaxAttempts             int
+	SlotID                  string
+	AdapterID               string
+	FailoverIndex           int
+	FailoverTrigger         FailureClass
+	CapturePreflightFailure bool
 }
 
 type AgentResponse struct {
-	Provider   Provider
-	Stdout     string
-	Stderr     string
-	ExitCode   int
-	Attempts   int
-	StartedAt  time.Time
-	FinishedAt time.Time
+	Provider        Provider
+	AdapterID       string
+	SlotID          string
+	FailoverIndex   int
+	FailoverTrigger FailureClass
+	Stdout          string
+	Stderr          string
+	ExitCode        int
+	Attempts        int
+	StartedAt       time.Time
+	FinishedAt      time.Time
 }
 
 type AgentRuntime interface {
@@ -166,6 +180,10 @@ func NewCodexCLI(binary string) AgentRuntime {
 	return newCodexCLI(binary, osProcessRunner{}, os.Environ)
 }
 
+func NewAntigravityCLI(binary, model string) AgentRuntime {
+	return newAntigravityCLI(binary, model, osProcessRunner{}, os.Environ)
+}
+
 func newClaudeCLI(binary string, runner processRunner, environ func() []string) AgentRuntime {
 	if strings.TrimSpace(binary) == "" {
 		binary = "claude"
@@ -200,6 +218,27 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		},
 		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
+		},
+	}
+}
+
+func newAntigravityCLI(binary, model string, runner processRunner, environ func() []string) AgentRuntime {
+	if strings.TrimSpace(binary) == "" {
+		binary = "agy"
+	}
+	model = strings.TrimSpace(model)
+	return &cliRuntime{
+		provider: ProviderAntigravity, binary: binary, runner: runner, environ: environ,
+		goos: goruntime.GOOS, lookPath: exec.LookPath,
+		runArgs: func(req AgentRequest, _ string) []string {
+			args := []string{"--print", req.Prompt, "--output-format", "json"}
+			if len(req.OutputSchema) > 0 {
+				args = append(args, "--json-schema", string(req.OutputSchema))
+			}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			return append(args, "--mode", "plan", "--sandbox", "--disable-slash-commands")
 		},
 	}
 }
@@ -309,21 +348,35 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 	runCtx, cancel := requestContext(ctx, req.Timeout)
 	defer cancel()
 
-	auth := r.runner.Run(runCtx, processSpec{
-		Command: r.binary,
-		Args:    append([]string(nil), r.authArgs...),
-		Dir:     req.Workdir,
-		Env:     safeEnv,
-	})
-	if auth.Err != nil || auth.ExitCode != 0 {
-		class := classifyFailure(auth.Err, auth.Stdout, auth.Stderr)
-		if class == FailureProcess {
-			class = FailureAuth
+	if len(r.authArgs) > 0 {
+		auth := r.runner.Run(runCtx, processSpec{
+			Command: r.binary,
+			Args:    append([]string(nil), r.authArgs...),
+			Dir:     req.Workdir,
+			Env:     safeEnv,
+		})
+		authResponse := AgentResponse{
+			Provider: r.provider, Stdout: auth.Stdout, Stderr: auth.Stderr, ExitCode: auth.ExitCode,
+			Attempts: 0, StartedAt: auth.StartedAt, FinishedAt: auth.FinishedAt,
 		}
-		return AgentResponse{}, &RunError{Class: class, Err: processError("auth preflight", auth)}
-	}
-	if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
-		return AgentResponse{}, &RunError{Class: FailureAuth, Err: err}
+		if auth.Err != nil || auth.ExitCode != 0 {
+			class := classifyFailure(auth.Err, auth.Stdout, auth.Stderr)
+			if class == FailureProcess {
+				class = FailureAuth
+			}
+			runErr := &RunError{Class: class, Err: processError("auth preflight", auth)}
+			if req.CapturePreflightFailure {
+				return authResponse, runErr
+			}
+			return AgentResponse{}, runErr
+		}
+		if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
+			runErr := &RunError{Class: FailureAuth, Err: err}
+			if req.CapturePreflightFailure {
+				return authResponse, runErr
+			}
+			return AgentResponse{}, runErr
+		}
 	}
 
 	executionEnv := safeEnv
@@ -352,7 +405,15 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		}()
 	}
 
-	for attempt := 1; attempt <= 2; attempt++ {
+	maxAttempts := req.MaxAttempts
+	if maxAttempts == 0 {
+		maxAttempts = 2
+	}
+	if maxAttempts < 1 || maxAttempts > 2 {
+		return AgentResponse{}, &RunError{Class: FailureProcess, Err: fmt.Errorf("max attempts must be 1 or 2, got %d", maxAttempts)}
+	}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result := r.runner.Run(runCtx, processSpec{
 			Command: r.binary,
 			Args:    r.runArgs(req, schemaPath),
@@ -373,7 +434,7 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		}
 
 		class := classifyFailure(result.Err, result.Stdout, result.Stderr)
-		if class != FailureProcess || attempt == 2 {
+		if class != FailureProcess || attempt == maxAttempts {
 			return attemptResponse, &RunError{Class: class, Err: processError("agent execution", result)}
 		}
 	}
@@ -509,6 +570,7 @@ func classifyFailure(err error, stdout, stderr string) FailureClass {
 		"not logged in",
 		"please login",
 		"please log in",
+		"authentication required",
 		"invalid token",
 	} {
 		if strings.Contains(text, marker) {

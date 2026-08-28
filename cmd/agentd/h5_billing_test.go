@@ -1,0 +1,33 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/ShenJun93/agent-council/internal/council/benchmark"
+)
+
+func TestRunH5BenchmarkRejectsMeteredFallbackBeforeExecution(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "council.yaml")
+	configBody := "runs:\n  root: .council/runs\nbilling:\n  mode: subscription_only\n  fail_closed: true\n  allow_metered_fallback: true\n"
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	exec := func(_ context.Context, _ h5ExecutionRequest) (benchmark.RunResult, error) {
+		calls++
+		return benchmark.RunResult{}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithH5BenchmarkExecutors([]string{"council", "benchmark", "h5", "--config", configPath}, &stdout, &stderr, nil, nil, nil, nil, exec)
+	if code == 0 {
+		t.Fatal("H5 accepted metered fallback config")
+	}
+	if calls != 0 {
+		t.Fatalf("executor calls=%d", calls)
+	}
+}

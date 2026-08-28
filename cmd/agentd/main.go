@@ -18,6 +18,7 @@ import (
 	"github.com/ShenJun93/agent-council/internal/council/config"
 	"github.com/ShenJun93/agent-council/internal/council/doctor"
 	"github.com/ShenJun93/agent-council/internal/council/evalharness"
+	"github.com/ShenJun93/agent-council/internal/council/humanbroker"
 	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 )
 
@@ -38,7 +39,74 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark)
+	return runWithH5BenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark, executeH5Benchmark)
+}
+
+func runWithH5BenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 h4Executor, executeH5 h5Executor) int {
+	if len(args) >= 2 && args[0] == "council" && args[1] == "broker" {
+		return runCouncilBroker(args[2:], stdout, stderr)
+	}
+	if len(args) >= 3 && args[0] == "council" && args[1] == "benchmark" && args[2] == "h5" {
+		return runCouncilBenchmarkH5(args[3:], stdout, stderr, executeH5)
+	}
+	return runWithAllBenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, executeH3, executeH4)
+}
+
+func runCouncilBroker(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "submit" {
+		_, _ = fmt.Fprintln(stderr, "agentd council broker requires the submit subcommand")
+		return 2
+	}
+	fs := flag.NewFlagSet("agentd council broker submit", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	runRoot := fs.String("run-root", "", "H5 run root containing the human broker request")
+	requestID := fs.String("request-id", "", "human broker request id")
+	responseFile := fs.String("response-file", "", "file containing raw ChatGPT response")
+	fresh := fs.Bool("fresh-session", false, "attest that the response came from a brand-new ChatGPT New Chat")
+	modelLabel := fs.String("model-label", "", "optional ChatGPT model label shown in the UI")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 || *runRoot == "" || *requestID == "" || *responseFile == "" {
+		_, _ = fmt.Fprintln(stderr, "broker submit requires --run-root, --request-id, --response-file, and --fresh-session")
+		return 2
+	}
+	if !*fresh {
+		_, _ = fmt.Fprintln(stderr, "broker submit requires --fresh-session attestation")
+		return 2
+	}
+	packet, err := humanbroker.LoadRequest(*runRoot, *requestID)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "load broker request: %v\n", err)
+		return 1
+	}
+	info, err := os.Lstat(*responseFile)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		_, _ = fmt.Fprintln(stderr, "response-file must be a real regular file")
+		return 1
+	}
+	raw, err := os.ReadFile(*responseFile)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "read broker response: %v\n", err)
+		return 1
+	}
+	if err := humanbroker.SubmitResponse(*runRoot, humanbroker.Submission{RequestID: *requestID, Nonce: packet.Nonce, FreshSession: true, ModelLabel: *modelLabel, RawResponse: string(raw)}); err != nil {
+		_, _ = fmt.Fprintf(stderr, "submit broker response: %v\n", err)
+		return 1
+	}
+	return encodeBrokerSubmission(stdout, stderr, *requestID)
+}
+
+func encodeBrokerSubmission(stdout, stderr io.Writer, requestID string) int {
+	out := struct {
+		RequestID string `json:"request_id"`
+		Status    string `json:"status"`
+	}{RequestID: requestID, Status: "submitted"}
+	if err := json.NewEncoder(stdout).Encode(out); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write broker output: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runWithH1Executor(args []string, stdout, stderr io.Writer, execute h1Executor) int {
@@ -277,5 +345,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h2 [--dataset benchmarks/h2] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h3 [--dataset benchmarks/h3] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h4 [--dataset benchmarks/h4] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark h5 [--dataset benchmarks/h5] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council broker submit --run-root RUN --request-id REQ --response-file FILE --fresh-session [--model-label LABEL]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }

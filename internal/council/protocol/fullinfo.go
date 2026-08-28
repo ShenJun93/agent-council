@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 	"github.com/ShenJun93/agent-council/internal/council/visibility"
 )
 
@@ -30,11 +29,8 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	if strings.TrimSpace(e.TempRoot) == "" {
 		return Result{}, fmt.Errorf("protocol temp root is required")
 	}
-	if e.Claude == nil || e.Codex == nil {
-		return Result{}, fmt.Errorf("both Claude and Codex runtimes are required")
-	}
-	if e.ChallengerProvider != councilruntime.ProviderClaude && e.ChallengerProvider != councilruntime.ProviderCodex {
-		return Result{}, fmt.Errorf("challenger provider must be explicitly set to claude or codex")
+	if err := e.validateRuntimes(); err != nil {
+		return Result{}, err
 	}
 
 	artifacts := []visibility.Artifact{{
@@ -46,12 +42,12 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	research, err := parallel2(ctx,
 		func(callCtx context.Context) (ResearchArtifact, error) {
 			var out ResearchArtifact
-			err := e.invokeJSON(callCtx, req, e.Claude, "researcher-1", "researcher", PhaseResearch, artifacts, []string{"problem"}, researchInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeResearcher1(), "researcher-1", "researcher", PhaseResearch, artifacts, []string{"problem"}, researchInstruction(), &out)
 			return out, err
 		},
 		func(callCtx context.Context) (ResearchArtifact, error) {
 			var out ResearchArtifact
-			err := e.invokeJSON(callCtx, req, e.Codex, "researcher-2", "researcher", PhaseResearch, artifacts, []string{"problem"}, researchInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeResearcher2(), "researcher-2", "researcher", PhaseResearch, artifacts, []string{"problem"}, researchInstruction(), &out)
 			return out, err
 		},
 	)
@@ -75,12 +71,12 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	reviews, err := parallel2(ctx,
 		func(callCtx context.Context) (ReviewArtifact, error) {
 			var out ReviewArtifact
-			err := e.invokeJSON(callCtx, req, e.Claude, "reviewer-1", "reviewer", PhaseReview, artifacts, fullResearch, reviewInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeReviewer1(), "reviewer-1", "reviewer", PhaseReview, artifacts, fullResearch, reviewInstruction(), &out)
 			return out, err
 		},
 		func(callCtx context.Context) (ReviewArtifact, error) {
 			var out ReviewArtifact
-			err := e.invokeJSON(callCtx, req, e.Codex, "reviewer-2", "reviewer", PhaseReview, artifacts, fullResearch, reviewInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeReviewer2(), "reviewer-2", "reviewer", PhaseReview, artifacts, fullResearch, reviewInstruction(), &out)
 			return out, err
 		},
 	)
@@ -101,10 +97,7 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	}
 
 	challengeDecision := e.challengeDecision(research)
-	challengeRuntime := e.Claude
-	if e.ChallengerProvider == councilruntime.ProviderCodex {
-		challengeRuntime = e.Codex
-	}
+	challengeRuntime := e.runtimeChallenger()
 	challengeInputs := []string{"problem", "research-1", "research-2", "review-1", "review-2"}
 	var challenge ChallengeArtifact
 	if err := e.invokeJSON(
@@ -135,12 +128,12 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	rebuttals, err := parallel2(ctx,
 		func(callCtx context.Context) (RebuttalArtifact, error) {
 			var out RebuttalArtifact
-			err := e.invokeJSON(callCtx, req, e.Claude, "researcher-1", "researcher", PhaseRebuttal, artifacts, fullRebuttal, rebuttalInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeResearcher1(), "researcher-1", "researcher", PhaseRebuttal, artifacts, fullRebuttal, rebuttalInstruction(), &out)
 			return out, err
 		},
 		func(callCtx context.Context) (RebuttalArtifact, error) {
 			var out RebuttalArtifact
-			err := e.invokeJSON(callCtx, req, e.Codex, "researcher-2", "researcher", PhaseRebuttal, artifacts, fullRebuttal, rebuttalInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeResearcher2(), "researcher-2", "researcher", PhaseRebuttal, artifacts, fullRebuttal, rebuttalInstruction(), &out)
 			return out, err
 		},
 	)
@@ -173,12 +166,12 @@ func (e FullInfoEngine) Run(ctx context.Context, req RunRequest) (Result, error)
 	judges, err := parallel2(ctx,
 		func(callCtx context.Context) (JudgeArtifact, error) {
 			var out JudgeArtifact
-			err := e.invokeJSON(callCtx, req, e.Claude, "judge-1", "judge", PhaseJudge, artifacts, judgeInputs, judgeInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeJudge1(), "judge-1", "judge", PhaseJudge, artifacts, judgeInputs, judgeInstruction(), &out)
 			return out, err
 		},
 		func(callCtx context.Context) (JudgeArtifact, error) {
 			var out JudgeArtifact
-			err := e.invokeJSON(callCtx, req, e.Codex, "judge-2", "judge", PhaseJudge, artifacts, judgeInputs, judgeInstruction(), &out)
+			err := e.invokeJSON(callCtx, req, e.runtimeJudge2(), "judge-2", "judge", PhaseJudge, artifacts, judgeInputs, judgeInstruction(), &out)
 			return out, err
 		},
 	)

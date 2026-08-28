@@ -156,9 +156,20 @@ type RunRequest struct {
 	NormalizedProblem json.RawMessage
 }
 
+type SlotRuntimes struct {
+	Researcher1 councilruntime.AgentRuntime
+	Researcher2 councilruntime.AgentRuntime
+	Reviewer1   councilruntime.AgentRuntime
+	Reviewer2   councilruntime.AgentRuntime
+	Challenger  councilruntime.AgentRuntime
+	Judge1      councilruntime.AgentRuntime
+	Judge2      councilruntime.AgentRuntime
+}
+
 type Engine struct {
 	Claude             councilruntime.AgentRuntime
 	Codex              councilruntime.AgentRuntime
+	Slots              *SlotRuntimes
 	TempRoot           string
 	ChallengerProvider councilruntime.Provider
 	ChallengePolicy    ChallengePolicy

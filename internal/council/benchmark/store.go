@@ -36,6 +36,7 @@ type RunManifest struct {
 	DatasetManifestSHA256 string `json:"dataset_manifest_sha256"`
 	RubricSHA256          string `json:"rubric_sha256"`
 	CasesSHA256           string `json:"cases_sha256"`
+	AdapterPolicySHA256   string `json:"adapter_policy_sha256,omitempty"`
 }
 
 type ResultManifest struct {

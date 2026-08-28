@@ -29,15 +29,16 @@ var H1ChallengePolicy = protocol.ChallengePolicy{
 }
 
 type Manifest struct {
-	SchemaVersion      string                 `json:"schema_version"`
-	BenchmarkID        string                 `json:"benchmark_id"`
-	CaseCount          int                    `json:"case_count"`
-	CategoryCounts     map[string]int         `json:"category_counts"`
-	CaseIDs            []string               `json:"case_ids"`
-	RubricSHA256       string                 `json:"rubric_sha256"`
-	CasesSHA256        string                 `json:"cases_sha256"`
-	Comparator         evalharness.Comparator `json:"comparator"`
-	MaterialWorseDelta float64                `json:"material_worse_delta"`
+	SchemaVersion       string                 `json:"schema_version"`
+	BenchmarkID         string                 `json:"benchmark_id"`
+	CaseCount           int                    `json:"case_count"`
+	CategoryCounts      map[string]int         `json:"category_counts"`
+	CaseIDs             []string               `json:"case_ids"`
+	RubricSHA256        string                 `json:"rubric_sha256"`
+	CasesSHA256         string                 `json:"cases_sha256"`
+	AdapterPolicySHA256 string                 `json:"adapter_policy_sha256,omitempty"`
+	Comparator          evalharness.Comparator `json:"comparator"`
+	MaterialWorseDelta  float64                `json:"material_worse_delta"`
 }
 
 type Case struct {
@@ -51,11 +52,14 @@ type Case struct {
 }
 
 type Dataset struct {
-	Root          string
-	Manifest      Manifest
-	ManifestBytes []byte
-	Rubric        json.RawMessage
-	RubricSHA256  string
-	CasesBytes    []byte
-	Cases         []Case
+	Root                string
+	Manifest            Manifest
+	ManifestBytes       []byte
+	Rubric              json.RawMessage
+	RubricSHA256        string
+	CasesBytes          []byte
+	Cases               []Case
+	AdapterPolicyBytes  []byte
+	AdapterPolicySHA256 string
+	AdapterPolicy       *H5AdapterPolicy
 }

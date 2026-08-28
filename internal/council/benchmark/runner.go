@@ -31,9 +31,10 @@ type RunRequest struct {
 }
 
 type RunResult struct {
-	RunID   string                   `json:"run_id"`
-	RunDir  string                   `json:"run_dir"`
-	Summary evalharness.BatchSummary `json:"batch_summary"`
+	RunID          string                   `json:"run_id"`
+	RunDir         string                   `json:"run_dir"`
+	Summary        evalharness.BatchSummary `json:"batch_summary"`
+	AdapterSummary *H5AdapterSummary        `json:"adapter_summary,omitempty"`
 }
 
 func (r Runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
