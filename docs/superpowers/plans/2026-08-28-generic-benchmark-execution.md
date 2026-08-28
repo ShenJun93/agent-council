@@ -61,7 +61,7 @@
 - Produces: exactly one `workflow_dispatch`, discovered run metadata, and marker `[<id>-fresh-dispatch-created attempt=<n>]`.
 
 - [ ] Build fake-`gh` RED fixtures covering no-marker success, existing-marker rejection, active-run rejection, dispatch failure, ambiguous new-run discovery, and successful issue comment creation.
-- [ ] Implement validation and read-before-write guards; query issue comments and workflow runs before dispatch.
+- [ ] Implement validation and read-before-write guards; query issue comments and workflow runs before dispatch, and require exactly `attempt - 1` historical runs.
 - [ ] Dispatch exactly once from `main`, discover one new `workflow_dispatch` run ID, reject ambiguity, then add the immutable issue marker.
 - [ ] Run focused tests with `-count=20` to catch accidental multiple dispatch calls; run `bash -n`.
 - [ ] Commit as `feat: add idempotent benchmark dispatch`.

@@ -35,14 +35,14 @@ Existing `bootstrap-h1-runner.sh` through `bootstrap-h4-runner.sh` remain untouc
 
 `scripts/render-frozen-benchmark-workflow.sh --benchmark <id> --frozen-sha <40hex> --output <path>`
 
-The renderer reads `benchmarks/<id>/{manifest.json,rubric.json,cases.json}`, computes SHA-256 locally, and emits a complete static manual-only workflow. The generated workflow embeds the exact frozen commit, hashes, runner label, benchmark command, audit paths, result filenames, and 90-day artifact retention.
+The renderer reads `benchmarks/<id>/{manifest.json,rubric.json,cases.json}`, computes SHA-256 locally, and emits a complete static manual-only workflow. It transforms the immutable H4 frozen workflow as the latest proven envelope; that H4 file is read-only. The generated workflow embeds the exact frozen commit, hashes, runner label, benchmark command, audit paths, result filenames, and 90-day artifact retention.
 
 The renderer refuses a dirty/missing dataset, unsafe benchmark IDs, invalid SHA, existing output unless `--check` is used, or missing benchmark CLI wiring.
 ### 3. Idempotent dispatch helper
 
 `scripts/dispatch-frozen-benchmark.sh --benchmark <id> --issue <n> --attempt <n> --workflow <file>`
 
-Before mutation it checks GitHub auth, verifies no issue marker `[<id>-fresh-dispatch-created attempt=<n>]`, and rejects any non-terminal workflow run for the same workflow. It dispatches exactly once from `main`, discovers the new workflow run, verifies the run differs from prior terminal runs, and writes the immutable issue marker with run metadata.
+Before mutation it checks GitHub auth, verifies no issue marker `[<id>-fresh-dispatch-created attempt=<n>]`, and rejects any non-terminal workflow run for the same workflow. It requires `attempt - 1` prior workflow runs, dispatches exactly once from `main`, discovers exactly one new workflow run, and writes the immutable issue marker with run metadata. The ordinal guard prevents a second dispatch even if marker writing failed after a successful first dispatch.
 
 Runner startup stays a separate foreground operation because Desktop Commander must keep the ephemeral runner process alive. This separation avoids unreliable detached WSL processes observed during H2/H3.
 
