@@ -9,3 +9,7 @@ Frozen SHA-256:
 - `rubric.json`: `59b82a515549a59e4bf84dda6f906db359a31b7bdb9306ad3016a1222713cb11`
 - `cases.json`: `95f08d7847dcd41a25ebfc0d7d904ed3b09011feeb3d038e7dd43fafe83847f9`
 - `adapter-policy.json`: `e12e67dac8af5f7cba704a36f2b3030a898ae869bac4ce4573421b2e2a93d890`
+Human fallback operator flow:
+1. `agentd council broker pending --run-root <run-root>` lists unanswered broker requests.
+2. `agentd council broker show --run-root <run-root> --request-id <id>` prints the exact prompt to paste into a brand-new ChatGPT **New Chat**.
+3. Save the raw assistant response unchanged and submit it with `agentd council broker submit --run-root <run-root> --request-id <id> --response-file <file> --fresh-session [--model-label <label>]`. The waiting H5 invocation then resumes.
