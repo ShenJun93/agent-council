@@ -24,7 +24,7 @@ jobs:
       - name: Checkout frozen H5 commit
         uses: actions/checkout@v7
         with:
-          ref: 5df2f40af9535d61c30ab56f89bff4dd4d5f2de7
+          ref: 03789d3807e227a606724300f679b933bfd7da37
           clean: true
           persist-credentials: false
       - name: Set up Go 1.26
@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           actual="$(git rev-parse HEAD)"
-          test "$actual" = "5df2f40af9535d61c30ab56f89bff4dd4d5f2de7"
+          test "$actual" = "03789d3807e227a606724300f679b933bfd7da37"
           status="$(git status --short)"
           test -z "$status"
           mkdir -p .h5-audit
