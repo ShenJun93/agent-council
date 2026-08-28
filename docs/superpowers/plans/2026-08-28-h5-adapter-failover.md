@@ -6,7 +6,7 @@
 
 **Architecture:** Add a small adapter-pool layer above existing provider runtimes, versioned invocation evidence for adapter attempts, and optional logical-slot bindings in baseline/protocol/evaluator. H5 commits the adapter registry and per-slot chains into its benchmark hash boundary and uses existing structured-output plus generic execution tooling.
 
-**Tech Stack:** Go 1.26, Claude Code CLI, Codex CLI authenticated with ChatGPT, GitHub Actions, existing safestore/visibility/structuredoutput packages.
+**Tech Stack:** Go 1.26, Claude Code CLI, Codex CLI authenticated with ChatGPT, fresh manual ChatGPT human broker, GitHub Actions, existing safestore/visibility/structuredoutput packages.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-h5-adapter-failover-design.md`
 
@@ -14,7 +14,7 @@
 - H1-H4 frozen benchmark files/workflows/scripts remain unchanged.
 - Metered API credentials remain forbidden.
 - H5 same-adapter max attempts is exactly 1; legacy zero-value behavior remains 2.
-- Failover only on availability classes; malformed/semantic/isolation/billing failures never fail over.
+- Failover only on availability classes; malformed/semantic/isolation/billing failures never fail over. Human ChatGPT is the final chain element and requires a fresh New Chat session.
 - Raw provider output is persisted before structured-output normalization.
 - No real H5 model call before implementation/data merge and exact frozen SHA are recorded.
 - Issue #31 is the lifecycle record.
@@ -42,6 +42,17 @@
 - [ ] Integration test `adapterpool -> structuredoutput -> invocationlog` proving first quota evidence and second successful raw evidence both exist while caller sees normalized payload.
 - [ ] Run invocationlog/adapterpool race tests and commit `feat: preserve adapter failover evidence`.
 
+### Task 2.5: Fresh ChatGPT human-broker adapter
+
+**Files:** create `internal/council/humanbroker/{types.go,runtime.go,runtime_test.go,submit.go}`; modify runtime provider enum and adapter-pool regression tests.
+
+**Interfaces:** `human-chatgpt-session` implements `AgentRuntime`, writes immutable request packets, waits in the same invocation, and accepts one create-only response submission with request ID/nonce and `fresh_session=true`.
+
+- [ ] RED tests prove exact prompt/schema hashes, failover metadata, New Chat/no-prior-context instructions, wrong nonce/non-fresh rejection, create-once response, cancellation, and 12-hour-default bounded waiting.
+- [ ] Add `ProviderChatGPT`; implement safestore-backed request packet and response submission.
+- [ ] Add 3-adapter regression proving Claude quota -> Codex auth/quota -> ChatGPT human success at failover index 2.
+- [ ] Run humanbroker/adapterpool race tests and commit `feat: add fresh ChatGPT human broker`.
+
 ### Task 3: Logical slot wiring
 
 **Files:** modify `internal/council/protocol/{types.go,engine.go,fullinfo.go}`; `internal/council/baseline/{types.go,runner.go}`; `internal/council/evalharness/harness.go` and focused tests.
@@ -63,13 +74,13 @@
 
 - [ ] RED tests load H5, reject policy hash drift/unknown adapter/empty chain/duplicate adapter/unsupported availability class, and prove H4?H5 problem/reference/rubric semantic equality.
 - [ ] Generate H5 data from H4 with only schema/version/provider-binding metadata changes; preserve all decision evidence and reference hashes semantically.
-- [ ] Freeze policy chains: A-side Claude-first/Codex-second, B-side Codex-first/Claude-second; challenger primary follows H4 odd/even schedule with deterministic secondary.
+- [ ] Freeze policy chains: A-side Claude-first/Codex-second/human-last, B-side Codex-first/Claude-second/human-last; challenger primary follows H4 odd/even schedule, the other automated adapter is second, and human ChatGPT is always last.
 - [ ] Record exact H5 manifest/rubric/cases/policy hashes and commit `feat: freeze H5 adapter benchmark dataset`.
 ### Task 5: H5 runner, CLI, and realized binding summary
 
 **Files:** create versioned H5 benchmark runner/store files and `cmd/agentd/h5_benchmark.go`; minimally extend command router/help.
 
-**Interfaces:** construct concrete adapters `claude-max` and `codex-chatgpt`, each as `CLI -> WrapAdapter -> structuredoutput`; create slot pools from frozen policy; H5 runner emits adapter/failover summary in result.
+**Interfaces:** construct concrete adapters `claude-max`, `codex-chatgpt`, and `human-chatgpt-session`, each as `CLI -> WrapAdapter -> structuredoutput`; create slot pools from frozen policy; H5 runner emits adapter/failover summary in result.
 
 - [ ] RED tests prove CLI has no provider-policy override, metered fallback remains rejected, and real constructors are provider-agnostic slots rather than fixed Claude reviewer/judge fields.
 - [ ] RED full-run tests inject quota on one adapter and prove problem completes through fallback; inject malformed output and prove immediate terminal failure without fallback.

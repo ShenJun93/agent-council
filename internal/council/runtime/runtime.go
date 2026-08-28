@@ -24,8 +24,9 @@ const codexCouncilFilesystemProfile = `permissions.council.filesystem={":root"="
 type Provider string
 
 const (
-	ProviderClaude Provider = "claude"
-	ProviderCodex  Provider = "codex"
+	ProviderClaude  Provider = "claude"
+	ProviderCodex   Provider = "codex"
+	ProviderChatGPT Provider = "chatgpt"
 )
 
 type FailureClass string

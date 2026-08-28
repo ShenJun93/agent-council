@@ -216,3 +216,25 @@ func TestNewRejectsInvalidPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestPoolFallsThroughTwoUnavailableAdaptersToHumanChatGPT(t *testing.T) {
+	claude := &fakeRuntime{steps: []fakeStep{{err: runErr(councilruntime.FailureQuotaExhausted)}}}
+	codex := &fakeRuntime{steps: []fakeStep{{err: runErr(councilruntime.FailureAuth)}}}
+	human := &fakeRuntime{steps: []fakeStep{{response: response(councilruntime.ProviderChatGPT)}}}
+	registry := testRegistry(claude, codex)
+	registry["human-chatgpt-session"] = Adapter{ID: "human-chatgpt-session", Provider: councilruntime.ProviderChatGPT, Runtime: human}
+	rt, err := New(registry, Policy{Slot: "reviewer-1", Chain: []AdapterID{"claude-max", "codex-chatgpt", "human-chatgpt-session"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := rt.Run(context.Background(), councilruntime.AgentRequest{Participant: "reviewer-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != councilruntime.ProviderChatGPT || got.AdapterID != "human-chatgpt-session" || got.FailoverIndex != 2 || got.FailoverTrigger != councilruntime.FailureAuth {
+		t.Fatalf("got=%+v", got)
+	}
+	if len(claude.requests) != 1 || len(codex.requests) != 1 || len(human.requests) != 1 {
+		t.Fatalf("calls=%d/%d/%d", len(claude.requests), len(codex.requests), len(human.requests))
+	}
+}
