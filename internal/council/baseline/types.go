@@ -51,6 +51,9 @@ const (
 type Runner struct {
 	Claude             councilruntime.AgentRuntime
 	Codex              councilruntime.AgentRuntime
+	SlotA              councilruntime.AgentRuntime
+	SlotB              councilruntime.AgentRuntime
+	CouncilSlots       *protocol.SlotRuntimes
 	TempRoot           string
 	ChallengerProvider councilruntime.Provider
 	ChallengePolicy    protocol.ChallengePolicy

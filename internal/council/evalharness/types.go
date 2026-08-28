@@ -52,13 +52,16 @@ type JudgeArtifact struct {
 }
 
 type JudgeScore struct {
-	Slot         string                  `json:"slot"`
-	Provider     councilruntime.Provider `json:"provider"`
-	Artifact     JudgeArtifact           `json:"artifact"`
-	InputHashes  map[string]string       `json:"input_hashes"`
-	OutputSHA256 string                  `json:"output_sha256"`
-	StartedAt    time.Time               `json:"started_at"`
-	FinishedAt   time.Time               `json:"finished_at"`
+	Slot            string                      `json:"slot"`
+	Provider        councilruntime.Provider     `json:"provider"`
+	AdapterID       string                      `json:"adapter_id,omitempty"`
+	FailoverIndex   int                         `json:"failover_index,omitempty"`
+	FailoverTrigger councilruntime.FailureClass `json:"failover_trigger,omitempty"`
+	Artifact        JudgeArtifact               `json:"artifact"`
+	InputHashes     map[string]string           `json:"input_hashes"`
+	OutputSHA256    string                      `json:"output_sha256"`
+	StartedAt       time.Time                   `json:"started_at"`
+	FinishedAt      time.Time                   `json:"finished_at"`
 }
 
 type ArmScore struct {

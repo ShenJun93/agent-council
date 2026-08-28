@@ -29,10 +29,36 @@ var frozenEvalArms = []baseline.Arm{
 	baseline.ArmFBlindCouncil,
 }
 
+type AdaptiveJudgeRuntimes struct {
+	Judge1 councilruntime.AgentRuntime
+	Judge2 councilruntime.AgentRuntime
+}
+
 type Harness struct {
 	Claude   councilruntime.AgentRuntime
 	Codex    councilruntime.AgentRuntime
+	Adaptive *AdaptiveJudgeRuntimes
 	TempRoot string
+}
+
+func (h Harness) validateJudgeRuntimes() error {
+	if h.Adaptive != nil {
+		if h.Adaptive.Judge1 == nil || h.Adaptive.Judge2 == nil {
+			return fmt.Errorf("both adaptive judge runtimes are required")
+		}
+		return nil
+	}
+	if h.Claude == nil || h.Codex == nil {
+		return fmt.Errorf("both fixed judge runtimes are required")
+	}
+	return nil
+}
+
+func (h Harness) judgeRuntimes() (councilruntime.AgentRuntime, councilruntime.AgentRuntime, councilruntime.Provider, councilruntime.Provider, bool) {
+	if h.Adaptive != nil {
+		return h.Adaptive.Judge1, h.Adaptive.Judge2, "", "", false
+	}
+	return h.Claude, h.Codex, councilruntime.ProviderClaude, councilruntime.ProviderCodex, true
 }
 
 type ProblemRequest struct {
@@ -71,24 +97,20 @@ func (h Harness) EvaluateProblem(ctx context.Context, req ProblemRequest) (Probl
 		return ProblemResult{}, err
 	}
 
+	judge1, judge2, expected1, expected2, enforce := h.judgeRuntimes()
 	armScores := make([]ArmScore, 0, len(prepared.arms))
 	for _, arm := range prepared.arms {
-		claudeScore, err := h.evaluateCandidate(ctx, req, prepared, arm, "judge-1", "eval-judge-1", councilruntime.ProviderClaude, h.Claude)
+		score1, err := h.evaluateCandidate(ctx, req, prepared, arm, "judge-1", "eval-judge-1", expected1, enforce, judge1)
 		if err != nil {
-			return ProblemResult{}, fmt.Errorf("arm %s Claude judge: %w", arm.arm, err)
+			return ProblemResult{}, fmt.Errorf("arm %s judge-1: %w", arm.arm, err)
 		}
-		codexScore, err := h.evaluateCandidate(ctx, req, prepared, arm, "judge-2", "eval-judge-2", councilruntime.ProviderCodex, h.Codex)
+		score2, err := h.evaluateCandidate(ctx, req, prepared, arm, "judge-2", "eval-judge-2", expected2, enforce, judge2)
 		if err != nil {
-			return ProblemResult{}, fmt.Errorf("arm %s Codex judge: %w", arm.arm, err)
+			return ProblemResult{}, fmt.Errorf("arm %s judge-2: %w", arm.arm, err)
 		}
-		mean := (claudeScore.Artifact.OverallScore + codexScore.Artifact.OverallScore) / 2
-		spread := math.Abs(claudeScore.Artifact.OverallScore - codexScore.Artifact.OverallScore)
-		armScores = append(armScores, ArmScore{
-			Arm:         arm.arm,
-			Judges:      [2]JudgeScore{claudeScore, codexScore},
-			MeanScore:   mean,
-			JudgeSpread: spread,
-		})
+		mean := (score1.Artifact.OverallScore + score2.Artifact.OverallScore) / 2
+		spread := math.Abs(score1.Artifact.OverallScore - score2.Artifact.OverallScore)
+		armScores = append(armScores, ArmScore{Arm: arm.arm, Judges: [2]JudgeScore{score1, score2}, MeanScore: mean, JudgeSpread: spread})
 	}
 
 	return ProblemResult{
@@ -113,8 +135,8 @@ func (h Harness) prepare(req ProblemRequest) (preparedProblem, error) {
 	if strings.TrimSpace(h.TempRoot) == "" {
 		return preparedProblem{}, fmt.Errorf("eval temp root is required")
 	}
-	if h.Claude == nil || h.Codex == nil {
-		return preparedProblem{}, fmt.Errorf("both fixed judge runtimes are required")
+	if err := h.validateJudgeRuntimes(); err != nil {
+		return preparedProblem{}, err
 	}
 	if err := validateRiskPolicy(req.RiskPolicy); err != nil {
 		return preparedProblem{}, err
@@ -199,6 +221,7 @@ func (h Harness) evaluateCandidate(
 	slot string,
 	participant string,
 	expectedProvider councilruntime.Provider,
+	enforceProvider bool,
 	rt councilruntime.AgentRuntime,
 ) (JudgeScore, error) {
 	artifacts := []visibility.Artifact{
@@ -253,7 +276,7 @@ func (h Harness) evaluateCandidate(
 	if cleanupErr != nil {
 		return JudgeScore{}, &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: fmt.Errorf("clean eval workspace: %w", cleanupErr)}
 	}
-	if response.Provider != expectedProvider {
+	if enforceProvider && response.Provider != expectedProvider {
 		return JudgeScore{}, &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: fmt.Errorf("judge provider substitution: got %q want %q", response.Provider, expectedProvider)}
 	}
 
@@ -269,9 +292,12 @@ func (h Harness) evaluateCandidate(
 	}
 
 	return JudgeScore{
-		Slot:     slot,
-		Provider: expectedProvider,
-		Artifact: artifact,
+		Slot:            slot,
+		Provider:        response.Provider,
+		AdapterID:       response.AdapterID,
+		FailoverIndex:   response.FailoverIndex,
+		FailoverTrigger: response.FailoverTrigger,
+		Artifact:        artifact,
 		InputHashes: map[string]string{
 			"problem":       prepared.problemHash,
 			"rubric":        prepared.rubricHash,

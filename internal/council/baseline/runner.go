@@ -59,11 +59,8 @@ func (r Runner) RunArm(ctx context.Context, req RunRequest, arm Arm) (ArmResult,
 	if strings.TrimSpace(r.TempRoot) == "" {
 		return ArmResult{}, fmt.Errorf("baseline temp root is required")
 	}
-	if r.Claude == nil || r.Codex == nil {
-		return ArmResult{}, fmt.Errorf("both Claude and Codex runtimes are required")
-	}
-	if r.ChallengerProvider != councilruntime.ProviderClaude && r.ChallengerProvider != councilruntime.ProviderCodex {
-		return ArmResult{}, fmt.Errorf("challenger provider must be explicitly set to claude or codex")
+	if err := r.validateRuntimes(); err != nil {
+		return ArmResult{}, err
 	}
 	if r.CitationAuthority != CitationAuthorityVisibleArtifacts && r.CitationAuthority != CitationAuthorityProblemOnlyFinal {
 		return ArmResult{}, fmt.Errorf("unsupported citation authority %d", r.CitationAuthority)
@@ -72,25 +69,25 @@ func (r Runner) RunArm(ctx context.Context, req RunRequest, arm Arm) (ArmResult,
 	normalized := RunRequest{RunID: req.RunID, RunRoot: req.RunRoot, NormalizedProblem: problem}
 	switch arm {
 	case ArmAClaudeSingle:
-		answer, err := r.runSingle(ctx, normalized, r.Claude, "baseline-a")
+		answer, err := r.runSingle(ctx, normalized, r.runtimeA(), "baseline-a")
 		if err != nil {
 			return ArmResult{}, err
 		}
 		return ArmResult{Arm: arm, InvocationCount: 1, Answer: &answer}, nil
 	case ArmBCodexSingle:
-		answer, err := r.runSingle(ctx, normalized, r.Codex, "baseline-b")
+		answer, err := r.runSingle(ctx, normalized, r.runtimeB(), "baseline-b")
 		if err != nil {
 			return ArmResult{}, err
 		}
 		return ArmResult{Arm: arm, InvocationCount: 1, Answer: &answer}, nil
 	case ArmCClaudeSelfReview:
-		answer, err := r.runSelfReview(ctx, normalized, r.Claude, "baseline-c")
+		answer, err := r.runSelfReview(ctx, normalized, r.runtimeA(), "baseline-c")
 		if err != nil {
 			return ArmResult{}, err
 		}
 		return ArmResult{Arm: arm, InvocationCount: 2, Answer: &answer}, nil
 	case ArmDCodexSelfReview:
-		answer, err := r.runSelfReview(ctx, normalized, r.Codex, "baseline-d")
+		answer, err := r.runSelfReview(ctx, normalized, r.runtimeB(), "baseline-d")
 		if err != nil {
 			return ArmResult{}, err
 		}
@@ -112,14 +109,42 @@ func (r Runner) RunArm(ctx context.Context, req RunRequest, arm Arm) (ArmResult,
 	}
 }
 
-func (r Runner) protocolEngine() protocol.Engine {
-	return protocol.Engine{
-		Claude:             r.Claude,
-		Codex:              r.Codex,
-		TempRoot:           r.TempRoot,
-		ChallengerProvider: r.ChallengerProvider,
-		ChallengePolicy:    r.ChallengePolicy,
+func (r Runner) usesSlots() bool { return r.SlotA != nil || r.SlotB != nil || r.CouncilSlots != nil }
+
+func (r Runner) validateRuntimes() error {
+	if r.usesSlots() {
+		if r.SlotA == nil || r.SlotB == nil || r.CouncilSlots == nil {
+			return fmt.Errorf("adaptive baseline requires slot A, slot B, and council slots")
+		}
+		return r.CouncilSlots.Validate()
 	}
+	if r.Claude == nil || r.Codex == nil {
+		return fmt.Errorf("both Claude and Codex runtimes are required")
+	}
+	if r.ChallengerProvider != councilruntime.ProviderClaude && r.ChallengerProvider != councilruntime.ProviderCodex {
+		return fmt.Errorf("challenger provider must be explicitly set to claude or codex")
+	}
+	return nil
+}
+
+func (r Runner) runtimeA() councilruntime.AgentRuntime {
+	if r.usesSlots() {
+		return r.SlotA
+	}
+	return r.Claude
+}
+func (r Runner) runtimeB() councilruntime.AgentRuntime {
+	if r.usesSlots() {
+		return r.SlotB
+	}
+	return r.Codex
+}
+
+func (r Runner) protocolEngine() protocol.Engine {
+	if r.usesSlots() {
+		return protocol.Engine{Slots: r.CouncilSlots, TempRoot: r.TempRoot, ChallengePolicy: r.ChallengePolicy}
+	}
+	return protocol.Engine{Claude: r.Claude, Codex: r.Codex, TempRoot: r.TempRoot, ChallengerProvider: r.ChallengerProvider, ChallengePolicy: r.ChallengePolicy}
 }
 
 func protocolRequest(req RunRequest) protocol.RunRequest {
