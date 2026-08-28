@@ -1,6 +1,6 @@
 # H5 Provider-Agnostic Adapter Failover Design
 
-**Status:** approved architecture for Issue #30.
+**Status:** approved architecture for Issue #31.
 
 ## Goal
 H5 removes provider names from council role policy. Claude, Codex, and future ChatGPT runtimes are adapter instances that can be bound to logical slots through a frozen ordered failover policy. Provider quota must not block a run while another approved subscription-backed adapter remains available.

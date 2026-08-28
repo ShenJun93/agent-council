@@ -17,7 +17,7 @@
 - Failover only on availability classes; malformed/semantic/isolation/billing failures never fail over.
 - Raw provider output is persisted before structured-output normalization.
 - No real H5 model call before implementation/data merge and exact frozen SHA are recorded.
-- Issue #30 is the lifecycle record.
+- Issue #31 is the lifecycle record.
 
 ---
 
@@ -82,9 +82,9 @@
 **Files:** no new semantic code unless CI identifies a defect.
 
 - [ ] Verify `gofmt`, `go test ./...`, `go vet ./...`, adapter/invocation race tests, `git diff --check`, golangci-lint v2.12.2.
-- [ ] Push branch and open PR tracking #30 with exact local head and frozen hashes.
+- [ ] Push branch and open PR tracking #31 with exact local head and frozen hashes.
 - [ ] Require exact-head CI + CLA success, self-review changed-file scope, then squash merge with expected-head guard.
-- [ ] Verify `main` exact merge SHA and post it to #30 as `H5_FROZEN_SHA`.
+- [ ] Verify `main` exact merge SHA and post it to #31 as `H5_FROZEN_SHA`.
 
 ### Task 7: Frozen execution via generic tooling
 
@@ -93,5 +93,5 @@
 - [ ] Use `render-frozen-benchmark-workflow.sh` with H5 frozen SHA; extend renderer if required to include adapter-policy hash, under TDD and without rewriting H1-H4 workflows.
 - [ ] Use generic bootstrap preflight that accepts the run when at least one approved adapter can serve every required slot; it must not require Claude specifically when Codex can cover all chains.
 - [ ] Open separate ops PR, require exact-head CI/CLA, merge, then start one ephemeral remote-first runner.
-- [ ] Dispatch exactly once with generic idempotent helper, collect Issue #30 marker, and monitor to terminal.
-- [ ] On success verify final H5 result, batch summary, adapter evidence v2, failover trace/hashes; close #30. On terminal failure preserve evidence and do not create another attempt automatically.
+- [ ] Dispatch exactly once with generic idempotent helper, collect Issue #31 marker, and monitor to terminal.
+- [ ] On success verify final H5 result, batch summary, adapter evidence v2, failover trace/hashes; close #31. On terminal failure preserve evidence and do not create another attempt automatically.
