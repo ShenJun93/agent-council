@@ -32,32 +32,57 @@ done
 RUNNER_LABEL="${BENCHMARK}-benchmark"
 BENCHMARK_UPPER="${BENCHMARK^^}"
 
-for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY; do
+metered_keys=(OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY)
+if [[ "$BENCHMARK" == "h5" ]]; then
+  metered_keys+=(ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY)
+fi
+for key in "${metered_keys[@]}"; do
   if [[ -n "${!key:-}" ]]; then
     die "metered API credentials are forbidden for ${BENCHMARK_UPPER}; unset $key"
   fi
 done
 
-for cmd in gh claude codex; do
-  command -v "$cmd" >/dev/null 2>&1 || die "required command not found: $cmd"
-done
-
+command -v gh >/dev/null 2>&1 || die "required command not found: gh"
 gh auth status >/dev/null 2>&1 || die "GitHub CLI is not authenticated; run: gh auth login"
 registration_token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token' 2>/dev/null)" || \
   die "GitHub auth lacks runner registration permission; authenticate an admin token with repository access"
 [[ -n "$registration_token" ]] || die "GitHub auth lacks runner registration permission; registration token was empty"
 
-claude_version="$(claude --version 2>&1)" || die "claude --version failed"
-claude_status="$(claude auth status 2>&1)" || die "Claude Code is not authenticated"
-
-grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status" || die "Claude Code auth status is not logged in"
-grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status" || die "Claude Code must use claude.ai subscription authentication"
-grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status" || die "Claude Code must use the first-party provider"
-grep -Eq '"subscriptionType"[[:space:]]*:[[:space:]]*"[^\"]+"' <<<"$claude_status" || die "Claude Code did not report an active subscription type"
-
-codex_version="$(codex --version 2>&1)" || die "codex --version failed"
-codex_status="$(codex login status 2>&1)" || die "Codex is not authenticated"
-grep -Fq 'Logged in using ChatGPT' <<<"$codex_status" || die "Codex must use ChatGPT subscription authentication"
+claude_version="unavailable"
+codex_version="unavailable"
+if [[ "$BENCHMARK" == "h5" ]]; then
+  if command -v claude >/dev/null 2>&1; then
+    candidate_version="$(claude --version 2>&1 || true)"
+    candidate_status="$(claude auth status 2>&1 || true)"
+    if grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$candidate_status" &&
+       grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$candidate_status" &&
+       grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$candidate_status" &&
+       grep -Eq '"subscriptionType"[[:space:]]*:[[:space:]]*"[^\"]+"' <<<"$candidate_status"; then
+      claude_version="$candidate_version"
+    fi
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    candidate_version="$(codex --version 2>&1 || true)"
+    candidate_status="$(codex login status 2>&1 || true)"
+    if grep -Fq 'Logged in using ChatGPT' <<<"$candidate_status"; then
+      codex_version="$candidate_version"
+    fi
+  fi
+  printf 'H5 human broker: available as final frozen fallback\n'
+else
+  for cmd in claude codex; do
+    command -v "$cmd" >/dev/null 2>&1 || die "required command not found: $cmd"
+  done
+  claude_version="$(claude --version 2>&1)" || die "claude --version failed"
+  claude_status="$(claude auth status 2>&1)" || die "Claude Code is not authenticated"
+  grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status" || die "Claude Code auth status is not logged in"
+  grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status" || die "Claude Code must use claude.ai subscription authentication"
+  grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status" || die "Claude Code must use the first-party provider"
+  grep -Eq '"subscriptionType"[[:space:]]*:[[:space:]]*"[^\"]+"' <<<"$claude_status" || die "Claude Code did not report an active subscription type"
+  codex_version="$(codex --version 2>&1)" || die "codex --version failed"
+  codex_status="$(codex login status 2>&1)" || die "Codex is not authenticated"
+  grep -Fq 'Logged in using ChatGPT' <<<"$codex_status" || die "Codex must use ChatGPT subscription authentication"
+fi
 
 os_name="$(uname -s)"
 arch_name="$(uname -m)"
