@@ -49,6 +49,10 @@ done
 manifest_sha="$(sha256sum "$DATASET/manifest.json" | awk '{print $1}')"
 rubric_sha="$(sha256sum "$DATASET/rubric.json" | awk '{print $1}')"
 cases_sha="$(sha256sum "$DATASET/cases.json" | awk '{print $1}')"
+policy_sha=""
+if [[ -f "$DATASET/adapter-policy.json" && ! -L "$DATASET/adapter-policy.json" ]]; then
+  policy_sha="$(sha256sum "$DATASET/adapter-policy.json" | awk '{print $1}')"
+fi
 BENCHMARK_UPPER="${BENCHMARK^^}"
 
 H4_FROZEN_SHA="375be888a49e261667362063e8ec03a2c42e152f"
@@ -67,6 +71,83 @@ sed \
   -e "s/H4/$BENCHMARK_UPPER/g" \
   -e "s/h4/$BENCHMARK/g" \
   "$TEMPLATE" > "$tmp"
+
+if [[ -n "$policy_sha" ]]; then
+  sed -i "/cases.json | awk/a\\          test \"\$(sha256sum benchmarks/$BENCHMARK/adapter-policy.json | awk '{print \$1}')\" = \"$policy_sha\"" "$tmp"
+  sed -i "/sha256sum benchmarks\/$BENCHMARK\/manifest.json/ s#benchmarks/$BENCHMARK/cases.json#benchmarks/$BENCHMARK/cases.json benchmarks/$BENCHMARK/adapter-policy.json#" "$tmp"
+fi
+
+if [[ "$BENCHMARK" == "h5" ]]; then
+  preflight="$(mktemp "${TMPDIR:-/tmp}/h5-preflight.XXXXXX")"
+  rewritten="$(mktemp "${TMPDIR:-/tmp}/h5-workflow.XXXXXX")"
+  cat > "$preflight" <<'EOF'
+      - name: Verify subscription adapter availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "metered API credentials are forbidden for H5; unset $key" >&2
+              exit 1
+            fi
+          done
+          automated_available=0
+          if command -v claude >/dev/null 2>&1; then
+            claude_version="$(claude --version 2>&1 || true)"
+            claude_status="$(claude auth status 2>&1 || true)"
+            if grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status" &&
+               grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status" &&
+               grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status"; then
+              printf 'Claude: %s\n' "$claude_version" | tee -a .h5-audit/preflight.txt
+              automated_available=1
+            else
+              echo "Claude: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+            fi
+          else
+            echo "Claude: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+          fi
+          if command -v codex >/dev/null 2>&1; then
+            codex_version="$(codex --version 2>&1 || true)"
+            codex_status="$(codex login status 2>&1 || true)"
+            if grep -Fq 'Logged in using ChatGPT' <<<"$codex_status"; then
+              printf 'Codex: %s\n' "$codex_version" | tee -a .h5-audit/preflight.txt
+              automated_available=1
+            else
+              echo "Codex: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+            fi
+          else
+            echo "Codex: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+          fi
+          if command -v agy >/dev/null 2>&1; then
+            printf 'Antigravity: %s\n' "$(agy --version 2>&1 || true)" | tee -a .h5-audit/preflight.txt
+          else
+            echo "Antigravity: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+          fi
+          echo "human-chatgpt-session: frozen final availability fallback" | tee -a .h5-audit/preflight.txt
+          printf 'automated_adapter_available=%s\n' "$automated_available" | tee -a .h5-audit/preflight.txt
+          go version | tee -a .h5-audit/preflight.txt
+EOF
+  awk -v replacement="$preflight" '
+    BEGIN {
+      while ((getline line < replacement) > 0) {
+        block = block line ORS
+      }
+      close(replacement)
+    }
+    /^      - name: Verify subscription CLIs$/ {
+      printf "%s", block
+      skip = 1
+      next
+    }
+    skip && /^      - name: Verify repository tests on frozen commit$/ {
+      skip = 0
+    }
+    skip { next }
+    { print }
+  ' "$tmp" > "$rewritten"
+  mv "$rewritten" "$tmp"
+  rm -f "$preflight"
+fi
 
 if [[ "$CHECK_ONLY" == "true" ]]; then
   [[ -f "$OUTPUT" && ! -L "$OUTPUT" ]] || die "workflow to check is not a real file: $OUTPUT"

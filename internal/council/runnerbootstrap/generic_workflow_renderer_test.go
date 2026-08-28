@@ -131,3 +131,52 @@ func TestGenericWorkflowRendererCheckDetectsDrift(t *testing.T) {
 		t.Fatalf("check accepted drifted workflow: %s", output)
 	}
 }
+
+func TestGenericWorkflowRendererH5EmbedsAdapterPolicyHash(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h5.yml")
+	renderWorkflow(t, "h5", "5df2f40af9535d61c30ab56f89bff4dd4d5f2de7", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"e12e67dac8af5f7cba704a36f2b3030a898ae869bac4ce4573421b2e2a93d890",
+		"benchmarks/h5/adapter-policy.json",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("rendered H5 workflow missing %q", required)
+		}
+	}
+}
+
+func TestGenericWorkflowRendererH5UsesAvailabilityPreflight(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h5.yml")
+	renderWorkflow(t, "h5", "5df2f40af9535d61c30ab56f89bff4dd4d5f2de7", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"Verify subscription adapter availability", "human-chatgpt-session: frozen final availability fallback", "GEMINI_API_KEY", "GOOGLE_API_KEY"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("rendered H5 workflow missing %q", required)
+		}
+	}
+	if strings.Contains(text, "command -v claude | tee") || strings.Contains(text, "command -v codex | tee") {
+		t.Fatal("H5 workflow must not require Claude or Codex individually")
+	}
+}
+
+func TestGenericWorkflowRendererH5HashesAdapterPolicyInAuditList(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h5.yml")
+	renderWorkflow(t, "h5", "5df2f40af9535d61c30ab56f89bff4dd4d5f2de7", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "benchmarks/h5/cases.json benchmarks/h5/adapter-policy.json") {
+		t.Fatal("H5 audit hash list must include adapter-policy.json")
+	}
+}
