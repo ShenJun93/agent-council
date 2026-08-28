@@ -65,21 +65,22 @@ func (e *RunError) Unwrap() error {
 }
 
 type AgentRequest struct {
-	RunID           string
-	RunRoot         string
-	Participant     string
-	Role            string
-	Phase           string
-	Prompt          string
-	Workdir         string
-	Timeout         time.Duration
-	Env             map[string]string
-	OutputSchema    json.RawMessage
-	MaxAttempts     int
-	SlotID          string
-	AdapterID       string
-	FailoverIndex   int
-	FailoverTrigger FailureClass
+	RunID                   string
+	RunRoot                 string
+	Participant             string
+	Role                    string
+	Phase                   string
+	Prompt                  string
+	Workdir                 string
+	Timeout                 time.Duration
+	Env                     map[string]string
+	OutputSchema            json.RawMessage
+	MaxAttempts             int
+	SlotID                  string
+	AdapterID               string
+	FailoverIndex           int
+	FailoverTrigger         FailureClass
+	CapturePreflightFailure bool
 }
 
 type AgentResponse struct {
@@ -326,15 +327,27 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		Dir:     req.Workdir,
 		Env:     safeEnv,
 	})
+	authResponse := AgentResponse{
+		Provider: r.provider, Stdout: auth.Stdout, Stderr: auth.Stderr, ExitCode: auth.ExitCode,
+		Attempts: 0, StartedAt: auth.StartedAt, FinishedAt: auth.FinishedAt,
+	}
 	if auth.Err != nil || auth.ExitCode != 0 {
 		class := classifyFailure(auth.Err, auth.Stdout, auth.Stderr)
 		if class == FailureProcess {
 			class = FailureAuth
 		}
-		return AgentResponse{}, &RunError{Class: class, Err: processError("auth preflight", auth)}
+		runErr := &RunError{Class: class, Err: processError("auth preflight", auth)}
+		if req.CapturePreflightFailure {
+			return authResponse, runErr
+		}
+		return AgentResponse{}, runErr
 	}
 	if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
-		return AgentResponse{}, &RunError{Class: FailureAuth, Err: err}
+		runErr := &RunError{Class: FailureAuth, Err: err}
+		if req.CapturePreflightFailure {
+			return authResponse, runErr
+		}
+		return AgentResponse{}, runErr
 	}
 
 	executionEnv := safeEnv

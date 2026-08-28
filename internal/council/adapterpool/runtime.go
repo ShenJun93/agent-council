@@ -70,6 +70,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 		attemptReq.AdapterID = string(id)
 		attemptReq.FailoverIndex = index
 		attemptReq.FailoverTrigger = trigger
+		attemptReq.CapturePreflightFailure = true
 
 		response, err := adapter.Runtime.Run(ctx, attemptReq)
 		response.AdapterID = string(id)
