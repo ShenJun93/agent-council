@@ -92,11 +92,36 @@ var h1DatasetVersion = datasetVersion{"H1", H1BenchmarkID, H1DatasetSchemaVersio
 var h2DatasetVersion = datasetVersion{"H2", H2BenchmarkID, H2DatasetSchemaVersion, H2CasesSchemaVersion, H2RubricSchemaVersion}
 var h3DatasetVersion = datasetVersion{"H3", H3BenchmarkID, H3DatasetSchemaVersion, H3CasesSchemaVersion, H3RubricSchemaVersion}
 var h4DatasetVersion = datasetVersion{"H4", H4BenchmarkID, H4DatasetSchemaVersion, H4CasesSchemaVersion, H4RubricSchemaVersion}
+var h5DatasetVersion = datasetVersion{"H5", H5BenchmarkID, H5DatasetSchemaVersion, H5CasesSchemaVersion, H5RubricSchemaVersion}
 
 func LoadH1(root string) (Dataset, error) { return loadDataset(root, h1DatasetVersion) }
 func LoadH2(root string) (Dataset, error) { return loadDataset(root, h2DatasetVersion) }
 func LoadH3(root string) (Dataset, error) { return loadDataset(root, h3DatasetVersion) }
 func LoadH4(root string) (Dataset, error) { return loadDataset(root, h4DatasetVersion) }
+func LoadH5(root string) (Dataset, error) {
+	dataset, err := loadDataset(root, h5DatasetVersion)
+	if err != nil {
+		return Dataset{}, err
+	}
+	raw, err := readDatasetFile(dataset.Root, "adapter-policy.json")
+	if err != nil {
+		return Dataset{}, err
+	}
+	if err := verifyDigest("adapter policy file", raw, dataset.Manifest.AdapterPolicySHA256); err != nil {
+		return Dataset{}, err
+	}
+	var policy H5AdapterPolicy
+	if err := decodeStrict("adapter-policy.json", raw, &policy); err != nil {
+		return Dataset{}, err
+	}
+	if err := validateH5AdapterPolicy(policy); err != nil {
+		return Dataset{}, err
+	}
+	dataset.AdapterPolicyBytes = append([]byte(nil), raw...)
+	dataset.AdapterPolicySHA256 = strings.ToLower(dataset.Manifest.AdapterPolicySHA256)
+	dataset.AdapterPolicy = &policy
+	return dataset, nil
+}
 
 func loadDataset(root string, version datasetVersion) (Dataset, error) {
 	trimmedRoot := strings.TrimSpace(root)
@@ -175,12 +200,19 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 			product++
 		}
 
-		wantChallenger := "claude"
-		if (index+1)%2 == 0 {
-			wantChallenger = "codex"
-		}
-		if envelope.ChallengerProvider != wantChallenger {
-			return Dataset{}, fmt.Errorf("case %q challenger %q, want %q for global index %d", envelope.ID, envelope.ChallengerProvider, wantChallenger, index+1)
+		wantChallenger := ""
+		if version.benchmarkID == H5BenchmarkID {
+			if envelope.ChallengerProvider != "" {
+				return Dataset{}, fmt.Errorf("case %q must not bind challenger provider in H5", envelope.ID)
+			}
+		} else {
+			wantChallenger = "claude"
+			if (index+1)%2 == 0 {
+				wantChallenger = "codex"
+			}
+			if envelope.ChallengerProvider != wantChallenger {
+				return Dataset{}, fmt.Errorf("case %q challenger %q, want %q for global index %d", envelope.ID, envelope.ChallengerProvider, wantChallenger, index+1)
+			}
 		}
 
 		problem, evidenceIDs, err := validateProblem(envelope.ID, envelope.Problem)
@@ -198,9 +230,12 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 			return Dataset{}, err
 		}
 
-		provider := councilruntime.ProviderClaude
-		if wantChallenger == "codex" {
-			provider = councilruntime.ProviderCodex
+		var provider councilruntime.Provider
+		if version.benchmarkID != H5BenchmarkID {
+			provider = councilruntime.ProviderClaude
+			if wantChallenger == "codex" {
+				provider = councilruntime.ProviderCodex
+			}
 		}
 		cases = append(cases, Case{
 			ID:                 envelope.ID,
@@ -228,6 +263,9 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 }
 
 func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte, version datasetVersion) error {
+	if version.benchmarkID != H5BenchmarkID && manifest.AdapterPolicySHA256 != "" {
+		return fmt.Errorf("manifest adapter_policy_sha256 is only valid for H5")
+	}
 	if manifest.SchemaVersion != version.datasetSchema {
 		return fmt.Errorf("manifest schema_version %q, want %q", manifest.SchemaVersion, version.datasetSchema)
 	}

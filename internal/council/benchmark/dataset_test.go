@@ -12,15 +12,16 @@ import (
 )
 
 type fixtureManifest struct {
-	SchemaVersion      string         `json:"schema_version"`
-	BenchmarkID        string         `json:"benchmark_id"`
-	CaseCount          int            `json:"case_count"`
-	CategoryCounts     map[string]int `json:"category_counts"`
-	CaseIDs            []string       `json:"case_ids"`
-	RubricSHA256       string         `json:"rubric_sha256"`
-	CasesSHA256        string         `json:"cases_sha256"`
-	Comparator         string         `json:"comparator"`
-	MaterialWorseDelta float64        `json:"material_worse_delta"`
+	SchemaVersion       string         `json:"schema_version"`
+	BenchmarkID         string         `json:"benchmark_id"`
+	CaseCount           int            `json:"case_count"`
+	CategoryCounts      map[string]int `json:"category_counts"`
+	CaseIDs             []string       `json:"case_ids"`
+	RubricSHA256        string         `json:"rubric_sha256"`
+	CasesSHA256         string         `json:"cases_sha256"`
+	AdapterPolicySHA256 string         `json:"adapter_policy_sha256,omitempty"`
+	Comparator          string         `json:"comparator"`
+	MaterialWorseDelta  float64        `json:"material_worse_delta"`
 }
 
 type fixtureCasesDocument struct {
