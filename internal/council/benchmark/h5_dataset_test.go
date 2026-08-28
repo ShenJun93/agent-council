@@ -9,13 +9,14 @@ import (
 )
 
 func testH5Policy() H5AdapterPolicy {
-	a := []string{"claude-max", "codex-chatgpt", "human-chatgpt-session"}
-	b := []string{"codex-chatgpt", "claude-max", "human-chatgpt-session"}
+	a := []string{"claude-max", "codex-chatgpt", "antigravity-subscription", "human-chatgpt-session"}
+	b := []string{"codex-chatgpt", "claude-max", "antigravity-subscription", "human-chatgpt-session"}
 	policy := H5AdapterPolicy{
 		SchemaVersion: H5AdapterPolicySchemaVersion,
 		Adapters: []H5AdapterDescriptor{
 			{ID: "claude-max", ProviderFamily: "claude", Transport: "claude-cli", AuthClass: "subscription", Interaction: "automated"},
 			{ID: "codex-chatgpt", ProviderFamily: "codex", Transport: "codex-cli", AuthClass: "chatgpt-subscription", Interaction: "automated"},
+			{ID: "antigravity-subscription", ProviderFamily: "antigravity", Transport: "agy-cli", AuthClass: "subscription", Interaction: "automated", Model: "gemini-3.1-pro-high"},
 			{ID: "human-chatgpt-session", ProviderFamily: "chatgpt", Transport: "human-chatgpt-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"},
 		},
 		Slots: map[string][]string{}, ChallengerByCase: map[string][]string{},
@@ -145,8 +146,8 @@ func TestCommittedH5PolicyKeepsH4PrimaryOrientationWithFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := []string{"claude-max", "codex-chatgpt", "human-chatgpt-session"}
-	b := []string{"codex-chatgpt", "claude-max", "human-chatgpt-session"}
+	a := []string{"claude-max", "codex-chatgpt", "antigravity-subscription", "human-chatgpt-session"}
+	b := []string{"codex-chatgpt", "claude-max", "antigravity-subscription", "human-chatgpt-session"}
 	for _, slot := range []string{"baseline-a", "researcher-1", "reviewer-1", "judge-1", "eval-judge-1"} {
 		if !reflect.DeepEqual(dataset.AdapterPolicy.Slots[slot], a) {
 			t.Fatalf("slot %s", slot)

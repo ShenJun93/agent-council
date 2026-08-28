@@ -24,9 +24,10 @@ const codexCouncilFilesystemProfile = `permissions.council.filesystem={":root"="
 type Provider string
 
 const (
-	ProviderClaude  Provider = "claude"
-	ProviderCodex   Provider = "codex"
-	ProviderChatGPT Provider = "chatgpt"
+	ProviderClaude      Provider = "claude"
+	ProviderCodex       Provider = "codex"
+	ProviderChatGPT     Provider = "chatgpt"
+	ProviderAntigravity Provider = "antigravity"
 )
 
 type FailureClass string
@@ -179,6 +180,10 @@ func NewCodexCLI(binary string) AgentRuntime {
 	return newCodexCLI(binary, osProcessRunner{}, os.Environ)
 }
 
+func NewAntigravityCLI(binary, model string) AgentRuntime {
+	return newAntigravityCLI(binary, model, osProcessRunner{}, os.Environ)
+}
+
 func newClaudeCLI(binary string, runner processRunner, environ func() []string) AgentRuntime {
 	if strings.TrimSpace(binary) == "" {
 		binary = "claude"
@@ -213,6 +218,27 @@ func newClaudeCLI(binary string, runner processRunner, environ func() []string) 
 		},
 		checkAuth: func(stdout, _ string) error {
 			return preflight.ValidateClaudeAuth([]byte(stdout))
+		},
+	}
+}
+
+func newAntigravityCLI(binary, model string, runner processRunner, environ func() []string) AgentRuntime {
+	if strings.TrimSpace(binary) == "" {
+		binary = "agy"
+	}
+	model = strings.TrimSpace(model)
+	return &cliRuntime{
+		provider: ProviderAntigravity, binary: binary, runner: runner, environ: environ,
+		goos: goruntime.GOOS, lookPath: exec.LookPath,
+		runArgs: func(req AgentRequest, _ string) []string {
+			args := []string{"--print", req.Prompt, "--output-format", "json"}
+			if len(req.OutputSchema) > 0 {
+				args = append(args, "--json-schema", string(req.OutputSchema))
+			}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			return append(args, "--mode", "plan", "--sandbox", "--disable-slash-commands")
 		},
 	}
 }
@@ -322,33 +348,35 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 	runCtx, cancel := requestContext(ctx, req.Timeout)
 	defer cancel()
 
-	auth := r.runner.Run(runCtx, processSpec{
-		Command: r.binary,
-		Args:    append([]string(nil), r.authArgs...),
-		Dir:     req.Workdir,
-		Env:     safeEnv,
-	})
-	authResponse := AgentResponse{
-		Provider: r.provider, Stdout: auth.Stdout, Stderr: auth.Stderr, ExitCode: auth.ExitCode,
-		Attempts: 0, StartedAt: auth.StartedAt, FinishedAt: auth.FinishedAt,
-	}
-	if auth.Err != nil || auth.ExitCode != 0 {
-		class := classifyFailure(auth.Err, auth.Stdout, auth.Stderr)
-		if class == FailureProcess {
-			class = FailureAuth
+	if len(r.authArgs) > 0 {
+		auth := r.runner.Run(runCtx, processSpec{
+			Command: r.binary,
+			Args:    append([]string(nil), r.authArgs...),
+			Dir:     req.Workdir,
+			Env:     safeEnv,
+		})
+		authResponse := AgentResponse{
+			Provider: r.provider, Stdout: auth.Stdout, Stderr: auth.Stderr, ExitCode: auth.ExitCode,
+			Attempts: 0, StartedAt: auth.StartedAt, FinishedAt: auth.FinishedAt,
 		}
-		runErr := &RunError{Class: class, Err: processError("auth preflight", auth)}
-		if req.CapturePreflightFailure {
-			return authResponse, runErr
+		if auth.Err != nil || auth.ExitCode != 0 {
+			class := classifyFailure(auth.Err, auth.Stdout, auth.Stderr)
+			if class == FailureProcess {
+				class = FailureAuth
+			}
+			runErr := &RunError{Class: class, Err: processError("auth preflight", auth)}
+			if req.CapturePreflightFailure {
+				return authResponse, runErr
+			}
+			return AgentResponse{}, runErr
 		}
-		return AgentResponse{}, runErr
-	}
-	if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
-		runErr := &RunError{Class: FailureAuth, Err: err}
-		if req.CapturePreflightFailure {
-			return authResponse, runErr
+		if err := r.checkAuth(auth.Stdout, auth.Stderr); err != nil {
+			runErr := &RunError{Class: FailureAuth, Err: err}
+			if req.CapturePreflightFailure {
+				return authResponse, runErr
+			}
+			return AgentResponse{}, runErr
 		}
-		return AgentResponse{}, runErr
 	}
 
 	executionEnv := safeEnv
@@ -542,6 +570,7 @@ func classifyFailure(err error, stdout, stderr string) FailureClass {
 		"not logged in",
 		"please login",
 		"please log in",
+		"authentication required",
 		"invalid token",
 	} {
 		if strings.Contains(text, marker) {

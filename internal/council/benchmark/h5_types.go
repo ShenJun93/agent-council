@@ -27,6 +27,7 @@ type H5AdapterDescriptor struct {
 	Transport      string `json:"transport"`
 	AuthClass      string `json:"auth_class"`
 	Interaction    string `json:"interaction"`
+	Model          string `json:"model,omitempty"`
 }
 
 type H5AdapterPolicy struct {
@@ -34,6 +35,18 @@ type H5AdapterPolicy struct {
 	Adapters         []H5AdapterDescriptor `json:"adapters"`
 	Slots            map[string][]string   `json:"slots"`
 	ChallengerByCase map[string][]string   `json:"challenger_by_case"`
+}
+
+type H5ResultManifest struct {
+	SchemaVersion              string `json:"schema_version"`
+	BenchmarkID                string `json:"benchmark_id"`
+	RunID                      string `json:"run_id"`
+	ProblemCount               int    `json:"problem_count"`
+	BatchSummarySHA256         string `json:"batch_summary_sha256"`
+	AdapterSummarySHA256       string `json:"adapter_summary_sha256"`
+	EffectiveProviderDiversity int    `json:"effective_provider_diversity"`
+	TotalAvailabilityFailovers int    `json:"total_availability_failovers"`
+	HumanBrokerInvocations     int    `json:"human_broker_invocations"`
 }
 
 var h5RequiredSlots = []string{
@@ -58,9 +71,12 @@ func validateH5AdapterPolicy(policy H5AdapterPolicy) error {
 		}
 		known[adapter.ID] = struct{}{}
 		switch adapter.ProviderFamily {
-		case "claude", "codex", "chatgpt":
+		case "claude", "codex", "chatgpt", "antigravity":
 		default:
 			return fmt.Errorf("adapter %q provider_family %q is unsupported", adapter.ID, adapter.ProviderFamily)
+		}
+		if adapter.ProviderFamily == "antigravity" && strings.TrimSpace(adapter.Model) == "" {
+			return fmt.Errorf("adapter %q model is required for antigravity", adapter.ID)
 		}
 		if strings.TrimSpace(adapter.Transport) == "" || strings.TrimSpace(adapter.AuthClass) == "" {
 			return fmt.Errorf("adapter %q transport and auth_class are required", adapter.ID)

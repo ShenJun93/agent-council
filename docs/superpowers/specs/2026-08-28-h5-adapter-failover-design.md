@@ -3,18 +3,18 @@
 **Status:** approved architecture for Issue #31.
 
 ## Goal
-H5 removes provider names from council role policy. Claude, Codex, and a fresh manual ChatGPT session are adapter instances that can be bound to logical slots through a frozen ordered failover policy. Provider quota must not block a run while another approved subscription-backed adapter remains available.
+H5 removes provider names from council role policy. Claude, Codex, Google Antigravity, and a fresh manual ChatGPT session are adapter instances that can be bound to logical slots through a frozen ordered failover policy. Provider quota must not block a run while another approved subscription-backed adapter remains available.
 
 ## Historical boundary
 H1-H4 remain immutable. H4 is frozen/inconclusive and will not be rerun. H5 preserves the H4 problem corpus, rubric, citation authority, structured-output contract, visibility firewall, six A-F wire arm IDs, evaluation statistics, and full-challenge behavior except where provider-binding semantics are explicitly versioned here.
 
 ## Identity model
 Three identities are distinct:
-- `ProviderFamily`: transport/model family such as `claude`, `codex`, or `chatgpt`.
-- `AdapterID`: concrete authenticated runtime instance, e.g. `claude-max`, `codex-chatgpt`, `human-chatgpt-session`, or a future `chatgpt-direct`.
+- `ProviderFamily`: transport/model family such as `claude`, `codex`, `antigravity`, or `chatgpt`.
+- `AdapterID`: concrete authenticated runtime instance, e.g. `claude-max`, `codex-chatgpt`, `antigravity-subscription`, `human-chatgpt-session`, or a future `chatgpt-direct`.
 - `SlotID`: logical council responsibility, independent of provider.
 
-H5 adapter registry contains `claude-max -> claude`, `codex-chatgpt -> codex`, and `human-chatgpt-session -> chatgpt`. The first two are automated subscription adapters; the third is an explicit human-broker adapter using a brand-new ChatGPT conversation. A future automated direct ChatGPT adapter may be registered without changing protocol semantics.
+H5 adapter registry contains `claude-max -> claude`, `codex-chatgpt -> codex`, `antigravity-subscription -> antigravity` (Google Antigravity CLI pinned to `gemini-3.1-pro-high`), and `human-chatgpt-session -> chatgpt`. The first three are automated subscription adapters; the fourth is an explicit human-broker adapter using a brand-new ChatGPT conversation. A future automated direct ChatGPT adapter may be registered without changing protocol semantics.
 
 ## Logical slots
 H5 uses these slot identities: `baseline-a`, `baseline-b`, `researcher-1`, `researcher-2`, `reviewer-1`, `reviewer-2`, `challenger`, `judge-1`, `judge-2`, `eval-judge-1`, and `eval-judge-2`.
@@ -22,9 +22,9 @@ H5 uses these slot identities: `baseline-a`, `baseline-b`, `researcher-1`, `rese
 A/C use `baseline-a`; B/D use `baseline-b`. Protocol E/F use the seven council slots. Evaluation uses the two eval judge slots.
 ## Frozen binding policy
 Each slot owns an ordered adapter chain. H5 default chains preserve H4's original primary-family orientation while permitting failover:
-- A-side slots (`baseline-a`, researcher/reviewer/judge `-1`, eval-judge-1): `[claude-max, codex-chatgpt, human-chatgpt-session]`.
-- B-side slots (`baseline-b`, researcher/reviewer/judge `-2`, eval-judge-2): `[codex-chatgpt, claude-max, human-chatgpt-session]`.
-- Challenger primary orientation follows the existing case challenger schedule; the other automated adapter is second and `human-chatgpt-session` is always last.
+- A-side slots (`baseline-a`, researcher/reviewer/judge `-1`, eval-judge-1): `[claude-max, codex-chatgpt, antigravity-subscription, human-chatgpt-session]`.
+- B-side slots (`baseline-b`, researcher/reviewer/judge `-2`, eval-judge-2): `[codex-chatgpt, claude-max, antigravity-subscription, human-chatgpt-session]`.
+- Challenger primary orientation follows the existing case challenger schedule; the other H4-family adapter is second, `antigravity-subscription` is third, and `human-chatgpt-session` is always last.
 
 The complete slot-to-chain mapping is committed in the H5 benchmark manifest and contributes to its frozen hash boundary. No CLI flag may override the policy during a frozen H5 run.
 
@@ -79,7 +79,7 @@ The manifest records adapter registry identities, provider families, every slot 
 No real H5 model call occurs before implementation/data merge and exact frozen SHA are recorded. After freeze, use generic workflow renderer/bootstrap/dispatch tooling merged at `390eb97f240a7cb219fb97689096f733fab1c788`.
 
 ## Operational policy
-Provider quota is not a scheduling dependency. Preflight may report an adapter unavailable but must permit the run when every required slot still has at least one available adapter. During execution, quota/auth availability triggers the next automated adapter without human intervention. If both automated subscription adapters are unavailable for a slot, the frozen chain may enter `human-chatgpt-session`; that is the only intended human intervention and does not create a new benchmark attempt.
+Provider quota is not a scheduling dependency. Preflight may report an adapter unavailable but must permit the run when every required slot still has at least one available adapter. During execution, quota/auth availability triggers the next automated adapter without human intervention. If all three automated subscription adapters are unavailable for a slot, the frozen chain may enter `human-chatgpt-session`; that is the only intended human intervention and does not create a new benchmark attempt.
 
 Metered API credentials stay forbidden. No hidden provider substitution is permitted: every substitution is the deterministic next item in the frozen chain and is recorded before execution continues.
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Add a small adapter-pool layer above existing provider runtimes, versioned invocation evidence for adapter attempts, and optional logical-slot bindings in baseline/protocol/evaluator. H5 commits the adapter registry and per-slot chains into its benchmark hash boundary and uses existing structured-output plus generic execution tooling.
 
-**Tech Stack:** Go 1.26, Claude Code CLI, Codex CLI authenticated with ChatGPT, fresh manual ChatGPT human broker, GitHub Actions, existing safestore/visibility/structuredoutput packages.
+**Tech Stack:** Go 1.26, Claude Code CLI, Codex CLI authenticated with ChatGPT, Google Antigravity CLI subscription auth, fresh manual ChatGPT human broker, GitHub Actions, existing safestore/visibility/structuredoutput packages.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-h5-adapter-failover-design.md`
 
@@ -74,13 +74,13 @@
 
 - [ ] RED tests load H5, reject policy hash drift/unknown adapter/empty chain/duplicate adapter/unsupported availability class, and prove H4?H5 problem/reference/rubric semantic equality.
 - [ ] Generate H5 data from H4 with only schema/version/provider-binding metadata changes; preserve all decision evidence and reference hashes semantically.
-- [ ] Freeze policy chains: A-side Claude-first/Codex-second/human-last, B-side Codex-first/Claude-second/human-last; challenger primary follows H4 odd/even schedule, the other automated adapter is second, and human ChatGPT is always last.
+- [ ] Freeze policy chains: A-side Claude-first/Codex-second/Antigravity-third/human-last, B-side Codex-first/Claude-second/Antigravity-third/human-last; challenger primary follows H4 odd/even schedule, the other H4-family adapter is second, Antigravity is third, and human ChatGPT is always last.
 - [ ] Record exact H5 manifest/rubric/cases/policy hashes and commit `feat: freeze H5 adapter benchmark dataset`.
 ### Task 5: H5 runner, CLI, and realized binding summary
 
 **Files:** create versioned H5 benchmark runner/store files and `cmd/agentd/h5_benchmark.go`; minimally extend command router/help.
 
-**Interfaces:** construct concrete adapters `claude-max`, `codex-chatgpt`, and `human-chatgpt-session`, each as `CLI -> WrapAdapter -> structuredoutput`; create slot pools from frozen policy; H5 runner emits adapter/failover summary in result.
+**Interfaces:** construct concrete adapters `claude-max`, `codex-chatgpt`, `antigravity-subscription`, and `human-chatgpt-session`, each as `CLI -> WrapAdapter -> structuredoutput`; create slot pools from frozen policy; H5 runner emits adapter/failover summary in result.
 
 - [ ] RED tests prove CLI has no provider-policy override, metered fallback remains rejected, and real constructors are provider-agnostic slots rather than fixed Claude reviewer/judge fields.
 - [ ] RED full-run tests inject quota on one adapter and prove problem completes through fallback; inject malformed output and prove immediate terminal failure without fallback.

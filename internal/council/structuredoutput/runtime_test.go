@@ -161,3 +161,22 @@ func TestWrapLogsRawClaudeEnvelopeBeforeExtraction(t *testing.T) {
 		t.Fatal("missing output schema digest")
 	}
 }
+
+func TestWrapLeavesHumanChatGPTPayloadAsStructuredJSON(t *testing.T) {
+	inner := &captureRuntime{resp: councilruntime.AgentResponse{
+		Provider: councilruntime.ProviderChatGPT,
+		Stdout:   `{"decision":"ship"}`,
+	}}
+	resp, err := Wrap(inner).Run(context.Background(), councilruntime.AgentRequest{
+		Role: "reviewer", Phase: "review",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Stdout != `{"decision":"ship"}` {
+		t.Fatalf("stdout=%q", resp.Stdout)
+	}
+	if len(inner.reqs) != 1 || len(inner.reqs[0].OutputSchema) == 0 {
+		t.Fatal("schema was not injected for ChatGPT broker")
+	}
+}

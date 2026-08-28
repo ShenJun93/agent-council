@@ -10,21 +10,35 @@ import (
 	"github.com/ShenJun93/agent-council/internal/council/safestore"
 )
 
+func LoadRequest(runRoot, requestID string) (RequestPacket, error) {
+	if !safeRequestID.MatchString(requestID) {
+		return RequestPacket{}, fmt.Errorf("invalid request id")
+	}
+	requestPath := filepath.Join(runRoot, "human-broker", requestID, "request.json")
+	data, found, err := readRegular(requestPath)
+	if err != nil {
+		return RequestPacket{}, fmt.Errorf("read broker request: %w", err)
+	}
+	if !found {
+		return RequestPacket{}, fmt.Errorf("broker request %q does not exist", requestID)
+	}
+	var packet RequestPacket
+	if err := decodeStrict(data, &packet); err != nil {
+		return RequestPacket{}, fmt.Errorf("decode broker request: %w", err)
+	}
+	if packet.SchemaVersion != RequestSchemaVersion || packet.RequestID != requestID || packet.Nonce == "" || packet.AdapterID != DefaultAdapterID || packet.ProviderFamily != "chatgpt" || !packet.RequireFreshSession {
+		return RequestPacket{}, fmt.Errorf("invalid broker request %q", requestID)
+	}
+	return packet, nil
+}
+
 func SubmitResponse(runRoot string, submission Submission) error {
 	if !safeRequestID.MatchString(submission.RequestID) {
 		return fmt.Errorf("invalid request id")
 	}
-	requestPath := filepath.Join(runRoot, "human-broker", submission.RequestID, "request.json")
-	data, found, err := readRegular(requestPath)
+	packet, err := LoadRequest(runRoot, submission.RequestID)
 	if err != nil {
-		return fmt.Errorf("read broker request: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("broker request %q does not exist", submission.RequestID)
-	}
-	var packet RequestPacket
-	if err := decodeStrict(data, &packet); err != nil {
-		return fmt.Errorf("decode broker request: %w", err)
+		return err
 	}
 	if packet.RequestID != submission.RequestID || packet.Nonce != submission.Nonce {
 		return fmt.Errorf("broker request identity mismatch")
