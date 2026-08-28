@@ -550,11 +550,21 @@ func classifyFailure(err error, stdout, stderr string) FailureClass {
 		return FailureTimeout
 	}
 
+	for _, raw := range []string{stdout, stderr} {
+		var envelope struct {
+			APIErrorStatus int `json:"api_error_status"`
+		}
+		if json.Unmarshal([]byte(strings.TrimSpace(raw)), &envelope) == nil && envelope.APIErrorStatus == 429 {
+			return FailureQuotaExhausted
+		}
+	}
+
 	text := strings.ToLower(stdout + "\n" + stderr)
 	for _, marker := range []string{
 		"quota exhausted",
 		"quota exceeded",
 		"usage limit",
+		"session limit",
 		"rate limit",
 		"rate_limit",
 		"too many requests",
