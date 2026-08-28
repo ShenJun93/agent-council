@@ -320,6 +320,8 @@ func TestClassifyFailure(t *testing.T) {
 	}{
 		{name: "timeout", err: context.DeadlineExceeded, want: FailureTimeout},
 		{name: "quota", err: errors.New("exit"), stderr: "quota exhausted", want: FailureQuotaExhausted},
+		{name: "claude session limit", err: errors.New("exit status 1"), stdout: `{"api_error_status":429,"result":"You've hit your session limit · resets 10:20pm (Asia/Bangkok)"}`, want: FailureQuotaExhausted},
+		{name: "http 429 json", err: errors.New("exit status 1"), stdout: `{"api_error_status":429,"result":"provider unavailable"}`, want: FailureQuotaExhausted},
 		{name: "auth", err: errors.New("exit"), stderr: "401 unauthorized; please login", want: FailureAuth},
 		{name: "process", err: errors.New("exit"), stderr: "segmentation fault", want: FailureProcess},
 	}
