@@ -38,6 +38,8 @@ const (
 	FailureIsolation              FailureClass = "isolation_failure"
 	FailureProcess                FailureClass = "process_failure"
 	FailureMalformedOutput        FailureClass = "malformed_output"
+	FailureAdapterUnavailable     FailureClass = "adapter_unavailable"
+	FailureAdapterPoolExhausted   FailureClass = "adapter_pool_exhausted"
 )
 
 type RunError struct {
@@ -63,26 +65,35 @@ func (e *RunError) Unwrap() error {
 }
 
 type AgentRequest struct {
-	RunID        string
-	RunRoot      string
-	Participant  string
-	Role         string
-	Phase        string
-	Prompt       string
-	Workdir      string
-	Timeout      time.Duration
-	Env          map[string]string
-	OutputSchema json.RawMessage
+	RunID           string
+	RunRoot         string
+	Participant     string
+	Role            string
+	Phase           string
+	Prompt          string
+	Workdir         string
+	Timeout         time.Duration
+	Env             map[string]string
+	OutputSchema    json.RawMessage
+	MaxAttempts     int
+	SlotID          string
+	AdapterID       string
+	FailoverIndex   int
+	FailoverTrigger FailureClass
 }
 
 type AgentResponse struct {
-	Provider   Provider
-	Stdout     string
-	Stderr     string
-	ExitCode   int
-	Attempts   int
-	StartedAt  time.Time
-	FinishedAt time.Time
+	Provider        Provider
+	AdapterID       string
+	SlotID          string
+	FailoverIndex   int
+	FailoverTrigger FailureClass
+	Stdout          string
+	Stderr          string
+	ExitCode        int
+	Attempts        int
+	StartedAt       time.Time
+	FinishedAt      time.Time
 }
 
 type AgentRuntime interface {
@@ -352,7 +363,15 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		}()
 	}
 
-	for attempt := 1; attempt <= 2; attempt++ {
+	maxAttempts := req.MaxAttempts
+	if maxAttempts == 0 {
+		maxAttempts = 2
+	}
+	if maxAttempts < 1 || maxAttempts > 2 {
+		return AgentResponse{}, &RunError{Class: FailureProcess, Err: fmt.Errorf("max attempts must be 1 or 2, got %d", maxAttempts)}
+	}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result := r.runner.Run(runCtx, processSpec{
 			Command: r.binary,
 			Args:    r.runArgs(req, schemaPath),
@@ -373,7 +392,7 @@ func (r *cliRuntime) Run(ctx context.Context, req AgentRequest) (response AgentR
 		}
 
 		class := classifyFailure(result.Err, result.Stdout, result.Stderr)
-		if class != FailureProcess || attempt == 2 {
+		if class != FailureProcess || attempt == maxAttempts {
 			return attemptResponse, &RunError{Class: class, Err: processError("agent execution", result)}
 		}
 	}
