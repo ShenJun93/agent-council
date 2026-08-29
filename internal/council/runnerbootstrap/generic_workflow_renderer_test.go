@@ -222,3 +222,61 @@ func TestGenericWorkflowRendererH5StillMatchesCommittedWorkflow(t *testing.T) {
 		t.Fatal("generic renderer drifted from committed H5 workflow")
 	}
 }
+
+func TestGenericWorkflowRendererH7UsesAdaptivePreflightAndPolicyHash(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h7.yml")
+	renderWorkflow(t, "h7", "b6a3ac79dbbd22051c9e19dea93ad2dc179ac85a", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"name: H7 Frozen Execution",
+		"ref: b6a3ac79dbbd22051c9e19dea93ad2dc179ac85a",
+		"Verify subscription adapter availability",
+		"human-chatgpt-session: frozen final availability fallback",
+		"benchmarks/h7/adapter-policy.json",
+		"e12e67dac8af5f7cba704a36f2b3030a898ae869bac4ce4573421b2e2a93d890",
+		".h7-audit",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("H7 workflow missing %q", required)
+		}
+	}
+	if strings.Contains(text, "command -v claude | tee") || strings.Contains(text, "command -v codex | tee") {
+		t.Fatal("H7 workflow must not require either automated adapter individually")
+	}
+}
+
+func TestGenericWorkflowRendererH7StillMatchesCommittedWorkflow(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h7.yml")
+	renderWorkflow(t, "h7", "b6a3ac79dbbd22051c9e19dea93ad2dc179ac85a", out)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", "h7-frozen-execution.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generic renderer drifted from committed H7 workflow")
+	}
+}
+
+func TestGenericWorkflowRendererH6StillMatchesCommittedWorkflow(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h6.yml")
+	renderWorkflow(t, "h6", "5d184348e9963282579396d5f978b14046452c8a", out)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", "h6-frozen-execution.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generic renderer drifted from committed H6 workflow")
+	}
+}
