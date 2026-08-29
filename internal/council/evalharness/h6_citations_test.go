@@ -57,3 +57,25 @@ func TestH6RejectsLegacyFreeFormCitationStrings(t *testing.T) {
 		t.Fatalf("expected typed decode rejection, got %v", err)
 	}
 }
+
+func TestH6RejectsCitationCheckOutsideCandidateSet(t *testing.T) {
+	req, prepared, arm := h6PreparedCandidate(t)
+	out := `{"overall_score":80,"dimensions":{"correctness":80},"citation_checks":[{"reference":{"artifact_id":"problem","locator":"constraints[1]"},"status":"verified","note":"wrong candidate key"}],"relied_on_citations":[],"critical_errors":[],"strengths":[],"weaknesses":[],"confidence":0.8}`
+	rt := &fakeJudgeRuntime{provider: councilruntime.ProviderClaude, output: out}
+	h := Harness{CitationContract: CitationContractStructuredV1, TempRoot: t.TempDir()}
+	_, err := h.evaluateCandidate(context.Background(), req, prepared, arm, "judge-1", "eval-judge-1", "", false, rt)
+	if err == nil || !strings.Contains(err.Error(), "citation check") || !strings.Contains(err.Error(), "not present in candidate") {
+		t.Fatalf("expected unknown citation-check rejection, got %v", err)
+	}
+}
+
+func TestH6RejectsWhitespaceMutatedCitationKey(t *testing.T) {
+	req, prepared, arm := h6PreparedCandidate(t)
+	out := `{"overall_score":80,"dimensions":{"correctness":80},"citation_checks":[{"reference":{"artifact_id":"problem","locator":" constraints[0]"},"status":"verified","note":"mutated"}],"relied_on_citations":[],"critical_errors":[],"strengths":[],"weaknesses":[],"confidence":0.8}`
+	rt := &fakeJudgeRuntime{provider: councilruntime.ProviderClaude, output: out}
+	h := Harness{CitationContract: CitationContractStructuredV1, TempRoot: t.TempDir()}
+	_, err := h.evaluateCandidate(context.Background(), req, prepared, arm, "judge-1", "eval-judge-1", "", false, rt)
+	if err == nil || !strings.Contains(err.Error(), "copy exactly") {
+		t.Fatalf("expected exact-key rejection, got %v", err)
+	}
+}

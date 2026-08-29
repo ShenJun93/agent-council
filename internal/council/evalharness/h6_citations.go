@@ -39,9 +39,6 @@ type H6JudgeArtifact struct {
 	Confidence        float64            `json:"confidence"`
 }
 
-const legacyJudgeInstruction = `EVALUATION_JUDGE
-Score exactly one masked candidate against the normalized problem, frozen rubric, and frozen reference set. Do not infer the candidate arm, provider, other candidates, consensus, or another judge's verdict. Verify every citation against the visible artifact it names before relying on that citation. A citation that cannot be verified must not support the score. Return JSON only with exactly these keys: \"overall\u005fscore\" (0..100), \"dimensions\" (object mapping every rubric dimension id to 0..100, no extras), \"citation\u005fchecks\" ({reference,status,note}[]), \"relied\u005fon\u005fcitations\" (string[]), \"critical\u005ferrors\" (string[]), \"strengths\" (string[]), \"weaknesses\" (string[]), \"confidence\" (0..1). Use status \"verified\" only when the cited claim matches the visible artifact.`
-
 const h6JudgeInstruction = `EVALUATION_JUDGE
 Score exactly one masked candidate against the normalized problem, frozen rubric, and frozen reference set. Do not infer the candidate arm, provider, other candidates, consensus, or another judge's verdict. Verify every citation against the visible artifact it names before relying on that citation. A citation that cannot be verified must not support the score. Return JSON only with exactly these keys: \"overall\u005fscore\" (0..100), \"dimensions\" (object mapping every rubric dimension id to 0..100, no extras), \"citation\u005fchecks\" ({reference:{\"artifact_id\":string,\"locator\":string},status,note}[]), \"relied\u005fon\u005fcitations\" ({\"artifact_id\":string,\"locator\":string}[]), \"critical\u005ferrors\" (string[]), \"strengths\" (string[]), \"weaknesses\" (string[]), \"confidence\" (0..1). Every citation reference must copy artifact_id and locator exactly from candidate.citations. Do not join, reformat, or paraphrase citation keys. Use status \"verified\" only when the cited claim matches the visible artifact.`
 
@@ -94,6 +91,9 @@ func validateH6CitationReferences(wire H6JudgeArtifact, candidate MaskedCandidat
 		if strings.TrimSpace(check.Status) == "" {
 			return fmt.Errorf("citation check status is required")
 		}
+		if _, ok := candidateRefs[check.Reference]; !ok {
+			return fmt.Errorf("citation check %q is not present in candidate", canonicalCitationKey(check.Reference))
+		}
 		if _, duplicate := checks[check.Reference]; duplicate {
 			return fmt.Errorf("duplicate citation check %q", canonicalCitationKey(check.Reference))
 		}
@@ -121,6 +121,9 @@ func validateH6CitationReferences(wire H6JudgeArtifact, candidate MaskedCandidat
 func validateCitationKey(key CitationKey) error {
 	if strings.TrimSpace(key.ArtifactID) == "" || strings.TrimSpace(key.Locator) == "" {
 		return fmt.Errorf("artifact_id and locator are required")
+	}
+	if strings.TrimSpace(key.ArtifactID) != key.ArtifactID || strings.TrimSpace(key.Locator) != key.Locator {
+		return fmt.Errorf("artifact_id and locator must copy exactly without surrounding whitespace")
 	}
 	return nil
 }
