@@ -1,0 +1,184 @@
+name: H6 Frozen Execution
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: h6-frozen-execution
+  cancel-in-progress: false
+
+jobs:
+  h6:
+    name: h6-frozen-execution
+    if: github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - linux
+      - h6-benchmark
+    timeout-minutes: 1380
+
+    steps:
+      - name: Checkout frozen H6 commit
+        uses: actions/checkout@v7
+        with:
+          ref: 5d184348e9963282579396d5f978b14046452c8a
+          clean: true
+          persist-credentials: false
+      - name: Set up Go 1.26
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify frozen checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "5d184348e9963282579396d5f978b14046452c8a"
+          status="$(git status --short)"
+          test -z "$status"
+          mkdir -p .h6-audit
+          {
+            echo "trigger_sha=${GITHUB_SHA}"
+            echo "frozen_sha=$actual"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+          } | tee .h6-audit/preflight.txt
+          test "$(sha256sum benchmarks/h6/manifest.json | awk '{print $1}')" = "f3a8b4a79a5189648a8f6df3bc5178679d197df9967f2fe0325aa0715e84ab2a"
+          test "$(sha256sum benchmarks/h6/rubric.json | awk '{print $1}')" = "d8e40b819f042936a54aabf851b71e8613961036771f61df6ae1a4ebef8b71ee"
+          test "$(sha256sum benchmarks/h6/cases.json | awk '{print $1}')" = "1b107b6129a51a72b5432130a8f55c53fa7be034ecc60ce75d3f25cfed003da6"
+          test "$(sha256sum benchmarks/h6/adapter-policy.json | awk '{print $1}')" = "e12e67dac8af5f7cba704a36f2b3030a898ae869bac4ce4573421b2e2a93d890"
+          sha256sum benchmarks/h6/manifest.json benchmarks/h6/rubric.json benchmarks/h6/cases.json benchmarks/h6/adapter-policy.json \
+            | tee .h6-audit/dataset.sha256
+      - name: Verify subscription adapter availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "metered API credentials are forbidden for H6; unset $key" >&2
+              exit 1
+            fi
+          done
+          automated_available=0
+          if command -v claude >/dev/null 2>&1; then
+            claude_version="$(claude --version 2>&1 || true)"
+            claude_status="$(claude auth status 2>&1 || true)"
+            if grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status" &&
+               grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status" &&
+               grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status"; then
+              printf 'Claude: %s\n' "$claude_version" | tee -a .h6-audit/preflight.txt
+              automated_available=1
+            else
+              echo "Claude: unavailable; frozen chain may fail over" | tee -a .h6-audit/preflight.txt
+            fi
+          else
+            echo "Claude: unavailable; frozen chain may fail over" | tee -a .h6-audit/preflight.txt
+          fi
+          if command -v codex >/dev/null 2>&1; then
+            codex_version="$(codex --version 2>&1 || true)"
+            codex_status="$(codex login status 2>&1 || true)"
+            if grep -Fq 'Logged in using ChatGPT' <<<"$codex_status"; then
+              printf 'Codex: %s\n' "$codex_version" | tee -a .h6-audit/preflight.txt
+              automated_available=1
+            else
+              echo "Codex: unavailable; frozen chain may fail over" | tee -a .h6-audit/preflight.txt
+            fi
+          else
+            echo "Codex: unavailable; frozen chain may fail over" | tee -a .h6-audit/preflight.txt
+          fi
+          if command -v agy >/dev/null 2>&1; then
+            printf 'Antigravity: %s\n' "$(agy --version 2>&1 || true)" | tee -a .h6-audit/preflight.txt
+          else
+            echo "Antigravity: unavailable; frozen chain may fail over" | tee -a .h6-audit/preflight.txt
+          fi
+          echo "human-chatgpt-session: frozen final availability fallback" | tee -a .h6-audit/preflight.txt
+          printf 'automated_adapter_available=%s\n' "$automated_available" | tee -a .h6-audit/preflight.txt
+          go version | tee -a .h6-audit/preflight.txt
+      - name: Verify repository tests on frozen commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./... 2>&1 | tee .h6-audit/go-test.txt
+
+      - name: Execute H6 exactly once
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          go run ./cmd/agentd council benchmark h6 \
+            --dataset benchmarks/h6 \
+            > >(tee .h6-audit/h6-output.json) \
+            2> >(tee .h6-audit/h6-stderr.log >&2)
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" | tee .h6-audit/exit-code.txt
+          exit "$rc"
+
+      - name: Collect H6 audit evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .h6-audit
+          : > .h6-audit/key-artifacts.sha256
+          : > .h6-audit/all-artifacts.sha256
+          if [[ -d .council/runs ]]; then
+            mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+            printf 'run_dir_count=%d\n' "${#run_dirs[@]}" | tee -a .h6-audit/audit.txt
+            if [[ ${#run_dirs[@]} -eq 1 ]]; then
+              run_dir="${run_dirs[0]}"
+              printf 'run_dir=%s\n' "$run_dir" | tee -a .h6-audit/audit.txt
+              printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .h6-audit/audit.txt
+              for rel in h6-run.json eval/batch-summary.json h6-result.json; do
+                path="$run_dir/$rel"
+                if [[ -f "$path" ]]; then
+                  sha256sum "$path" | tee -a .h6-audit/key-artifacts.sha256
+                fi
+              done
+            fi
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> .h6-audit/all-artifacts.sha256
+            done < <(find .council/runs -type f -print0 | sort -z)
+          else
+            echo 'run_dir_count=0' | tee -a .h6-audit/audit.txt
+          fi
+          {
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "workflow_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [[ -f .h6-audit/exit-code.txt ]]; then
+              echo "benchmark_exit_code=$(cat .h6-audit/exit-code.txt)"
+            else
+              echo "benchmark_exit_code=not_started"
+            fi
+          } | tee -a .h6-audit/audit.txt
+
+          cat .h6-audit/audit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s .h6-audit/key-artifacts.sha256 ]]; then
+            {
+              echo
+              echo 'Key artifact SHA-256:'
+              echo '```text'
+              cat .h6-audit/key-artifacts.sha256
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload full or partial H6 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h6-frozen-${{ github.run_id }}
+          path: |
+            .h6-audit
+            .council/runs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90

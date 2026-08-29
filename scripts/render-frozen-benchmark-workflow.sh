@@ -77,9 +77,9 @@ if [[ -n "$policy_sha" ]]; then
   sed -i "/sha256sum benchmarks\/$BENCHMARK\/manifest.json/ s#benchmarks/$BENCHMARK/cases.json#benchmarks/$BENCHMARK/cases.json benchmarks/$BENCHMARK/adapter-policy.json#" "$tmp"
 fi
 
-if [[ "$BENCHMARK" == "h5" ]]; then
-  preflight="$(mktemp "${TMPDIR:-/tmp}/h5-preflight.XXXXXX")"
-  rewritten="$(mktemp "${TMPDIR:-/tmp}/h5-workflow.XXXXXX")"
+if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" ]]; then
+  preflight="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-preflight.XXXXXX")"
+  rewritten="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-workflow.XXXXXX")"
   cat > "$preflight" <<'EOF'
       - name: Verify subscription adapter availability
         shell: bash
@@ -87,7 +87,7 @@ if [[ "$BENCHMARK" == "h5" ]]; then
           set -euo pipefail
           for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY; do
             if [[ -n "${!key:-}" ]]; then
-              echo "metered API credentials are forbidden for H5; unset $key" >&2
+              echo "metered API credentials are forbidden for __BENCHMARK_UPPER__; unset $key" >&2
               exit 1
             fi
           done
@@ -98,35 +98,36 @@ if [[ "$BENCHMARK" == "h5" ]]; then
             if grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' <<<"$claude_status" &&
                grep -Eq '"authMethod"[[:space:]]*:[[:space:]]*"claude\.ai"' <<<"$claude_status" &&
                grep -Eq '"apiProvider"[[:space:]]*:[[:space:]]*"firstParty"' <<<"$claude_status"; then
-              printf 'Claude: %s\n' "$claude_version" | tee -a .h5-audit/preflight.txt
+              printf 'Claude: %s\n' "$claude_version" | tee -a .__BENCHMARK__-audit/preflight.txt
               automated_available=1
             else
-              echo "Claude: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+              echo "Claude: unavailable; frozen chain may fail over" | tee -a .__BENCHMARK__-audit/preflight.txt
             fi
           else
-            echo "Claude: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+            echo "Claude: unavailable; frozen chain may fail over" | tee -a .__BENCHMARK__-audit/preflight.txt
           fi
           if command -v codex >/dev/null 2>&1; then
             codex_version="$(codex --version 2>&1 || true)"
             codex_status="$(codex login status 2>&1 || true)"
             if grep -Fq 'Logged in using ChatGPT' <<<"$codex_status"; then
-              printf 'Codex: %s\n' "$codex_version" | tee -a .h5-audit/preflight.txt
+              printf 'Codex: %s\n' "$codex_version" | tee -a .__BENCHMARK__-audit/preflight.txt
               automated_available=1
             else
-              echo "Codex: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+              echo "Codex: unavailable; frozen chain may fail over" | tee -a .__BENCHMARK__-audit/preflight.txt
             fi
           else
-            echo "Codex: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+            echo "Codex: unavailable; frozen chain may fail over" | tee -a .__BENCHMARK__-audit/preflight.txt
           fi
           if command -v agy >/dev/null 2>&1; then
-            printf 'Antigravity: %s\n' "$(agy --version 2>&1 || true)" | tee -a .h5-audit/preflight.txt
+            printf 'Antigravity: %s\n' "$(agy --version 2>&1 || true)" | tee -a .__BENCHMARK__-audit/preflight.txt
           else
-            echo "Antigravity: unavailable; frozen chain may fail over" | tee -a .h5-audit/preflight.txt
+            echo "Antigravity: unavailable; frozen chain may fail over" | tee -a .__BENCHMARK__-audit/preflight.txt
           fi
-          echo "human-chatgpt-session: frozen final availability fallback" | tee -a .h5-audit/preflight.txt
-          printf 'automated_adapter_available=%s\n' "$automated_available" | tee -a .h5-audit/preflight.txt
-          go version | tee -a .h5-audit/preflight.txt
+          echo "human-chatgpt-session: frozen final availability fallback" | tee -a .__BENCHMARK__-audit/preflight.txt
+          printf 'automated_adapter_available=%s\n' "$automated_available" | tee -a .__BENCHMARK__-audit/preflight.txt
+          go version | tee -a .__BENCHMARK__-audit/preflight.txt
 EOF
+  sed -i -e "s/__BENCHMARK_UPPER__/$BENCHMARK_UPPER/g" -e "s/__BENCHMARK__/$BENCHMARK/g" "$preflight"
   awk -v replacement="$preflight" '
     BEGIN {
       while ((getline line < replacement) > 0) {

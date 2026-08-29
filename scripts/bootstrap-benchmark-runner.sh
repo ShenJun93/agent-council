@@ -33,7 +33,7 @@ RUNNER_LABEL="${BENCHMARK}-benchmark"
 BENCHMARK_UPPER="${BENCHMARK^^}"
 
 metered_keys=(OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY)
-if [[ "$BENCHMARK" == "h5" ]]; then
+if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" ]]; then
   metered_keys+=(ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY)
 fi
 for key in "${metered_keys[@]}"; do
@@ -50,7 +50,7 @@ registration_token="$(gh api -X POST "repos/$REPO/actions/runners/registration-t
 
 claude_version="unavailable"
 codex_version="unavailable"
-if [[ "$BENCHMARK" == "h5" ]]; then
+if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" ]]; then
   if command -v claude >/dev/null 2>&1; then
     candidate_version="$(claude --version 2>&1 || true)"
     candidate_status="$(claude auth status 2>&1 || true)"
@@ -68,7 +68,7 @@ if [[ "$BENCHMARK" == "h5" ]]; then
       codex_version="$candidate_version"
     fi
   fi
-  printf 'H5 human broker: available as final frozen fallback\n'
+  printf '%s human broker: available as final frozen fallback\n' "$BENCHMARK_UPPER"
 else
   for cmd in claude codex; do
     command -v "$cmd" >/dev/null 2>&1 || die "required command not found: $cmd"
