@@ -253,8 +253,11 @@ func (h Harness) evaluateCandidate(
 	}
 
 	prompt, renderErr := renderJudgePrompt(workspace, artifacts)
-	if h.CitationContract == CitationContractStructuredV1 {
+	switch h.CitationContract {
+	case CitationContractStructuredV1:
 		prompt, renderErr = renderH6JudgePrompt(workspace, artifacts)
+	case CitationContractStructuredV2:
+		prompt, renderErr = renderH7JudgePrompt(workspace, artifacts)
 	}
 	if renderErr != nil {
 		cleanupErr := workspace.Cleanup()
