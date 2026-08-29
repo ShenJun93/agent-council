@@ -77,7 +77,7 @@ if [[ -n "$policy_sha" ]]; then
   sed -i "/sha256sum benchmarks\/$BENCHMARK\/manifest.json/ s#benchmarks/$BENCHMARK/cases.json#benchmarks/$BENCHMARK/cases.json benchmarks/$BENCHMARK/adapter-policy.json#" "$tmp"
 fi
 
-if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" ]]; then
+if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" ]]; then
   preflight="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-preflight.XXXXXX")"
   rewritten="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-workflow.XXXXXX")"
   cat > "$preflight" <<'EOF'
