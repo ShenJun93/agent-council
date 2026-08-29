@@ -16,6 +16,7 @@ type CitationContract uint8
 const (
 	CitationContractLegacy CitationContract = iota
 	CitationContractStructuredV1
+	CitationContractStructuredV2
 )
 
 type CitationKey struct {
@@ -44,7 +45,7 @@ Score exactly one masked candidate against the normalized problem, frozen rubric
 
 func validateCitationContract(contract CitationContract) error {
 	switch contract {
-	case CitationContractLegacy, CitationContractStructuredV1:
+	case CitationContractLegacy, CitationContractStructuredV1, CitationContractStructuredV2:
 		return nil
 	default:
 		return fmt.Errorf("unsupported citation contract %d", contract)
@@ -64,6 +65,9 @@ func decodeJudgeForContract(raw string, contract CitationContract, dimensions []
 			return JudgeArtifact{}, malformedEval(err)
 		}
 		return artifact, nil
+	}
+	if contract == CitationContractStructuredV2 {
+		return decodeH7Judge(raw, dimensions, candidate)
 	}
 	var wire H6JudgeArtifact
 	if err := modeloutput.DecodeStrict(raw, &wire); err != nil {
