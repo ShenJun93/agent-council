@@ -63,13 +63,16 @@ func validateH7CitationReferences(wire H7JudgeArtifact, candidate MaskedCandidat
 	}
 	checks := make(map[CitationOccurrenceKey]string, len(wire.CitationChecks))
 	for _, check := range wire.CitationChecks {
-		if err := validateCitationOccurrenceKey(check.Reference); err != nil {
-			return fmt.Errorf("citation check: %w", err)
+		_, member := candidateRefs[check.Reference]
+		if !member {
+			if err := validateCitationOccurrenceKey(check.Reference); err != nil {
+				return fmt.Errorf("citation check: %w", err)
+			}
 		}
 		if strings.TrimSpace(check.Status) == "" {
 			return fmt.Errorf("citation check status is required")
 		}
-		if _, ok := candidateRefs[check.Reference]; !ok {
+		if !member {
 			return fmt.Errorf("citation check %q is not present in candidate", canonicalOccurrenceString(check.Reference))
 		}
 		if _, duplicate := checks[check.Reference]; duplicate {
@@ -79,16 +82,16 @@ func validateH7CitationReferences(wire H7JudgeArtifact, candidate MaskedCandidat
 	}
 	seen := make(map[CitationOccurrenceKey]struct{}, len(wire.ReliedOnCitations))
 	for _, reference := range wire.ReliedOnCitations {
-		if err := validateCitationOccurrenceKey(reference); err != nil {
-			return fmt.Errorf("relied-on citation: %w", err)
+		if _, ok := candidateRefs[reference]; !ok {
+			if err := validateCitationOccurrenceKey(reference); err != nil {
+				return fmt.Errorf("relied-on citation: %w", err)
+			}
+			return fmt.Errorf("relied-on citation %q is not present in candidate", canonicalOccurrenceString(reference))
 		}
 		if _, duplicate := seen[reference]; duplicate {
 			return fmt.Errorf("duplicate relied-on citation %q", canonicalOccurrenceString(reference))
 		}
 		seen[reference] = struct{}{}
-		if _, ok := candidateRefs[reference]; !ok {
-			return fmt.Errorf("relied-on citation %q is not present in candidate", canonicalOccurrenceString(reference))
-		}
 		if checks[reference] != "verified" {
 			return fmt.Errorf("relied-on citation %q is not verified", canonicalOccurrenceString(reference))
 		}

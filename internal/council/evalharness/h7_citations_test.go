@@ -144,3 +144,15 @@ func TestH7RejectsEmptyClaim(t *testing.T) {
 		t.Fatalf("expected required-field rejection for empty claim, got %v", err)
 	}
 }
+
+func TestH7AcceptsExactCandidateClaimBytesWithSurroundingWhitespace(t *testing.T) {
+	key := CitationOccurrenceKey{ArtifactID: "problem", Locator: "constraints[1]", Claim: " claim one "}
+	candidate := MaskedCandidate{Citations: []protocol.EvidenceRef{{ArtifactID: key.ArtifactID, Locator: key.Locator, Claim: key.Claim}}}
+	wire := H7JudgeArtifact{
+		CitationChecks:    []H7CitationCheck{{Reference: key, Status: "verified", Note: "exact candidate bytes"}},
+		ReliedOnCitations: []CitationOccurrenceKey{key},
+	}
+	if err := validateH7CitationReferences(wire, candidate); err != nil {
+		t.Fatalf("exact candidate citation should be valid without claim normalization: %v", err)
+	}
+}
