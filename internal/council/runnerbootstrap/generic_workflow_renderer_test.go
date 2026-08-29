@@ -180,3 +180,45 @@ func TestGenericWorkflowRendererH5HashesAdapterPolicyInAuditList(t *testing.T) {
 		t.Fatal("H5 audit hash list must include adapter-policy.json")
 	}
 }
+
+func TestGenericWorkflowRendererH6UsesAdaptivePreflightAndPolicyHash(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h6.yml")
+	renderWorkflow(t, "h6", "5d184348e9963282579396d5f978b14046452c8a", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"name: H6 Frozen Execution",
+		"ref: 5d184348e9963282579396d5f978b14046452c8a",
+		"Verify subscription adapter availability",
+		"human-chatgpt-session: frozen final availability fallback",
+		"benchmarks/h6/adapter-policy.json",
+		"e12e67dac8af5f7cba704a36f2b3030a898ae869bac4ce4573421b2e2a93d890",
+		".h6-audit",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("H6 workflow missing %q", required)
+		}
+	}
+	if strings.Contains(text, "Claude Code must use") || strings.Contains(text, "Codex must use") {
+		t.Fatal("H6 workflow must not require either automated adapter individually")
+	}
+}
+
+func TestGenericWorkflowRendererH5StillMatchesCommittedWorkflow(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "h5.yml")
+	renderWorkflow(t, "h5", "5b6d341ae9edd86011502627a9ec7893114fe3e6", out)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", "h5-frozen-execution.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generic renderer drifted from committed H5 workflow")
+	}
+}
