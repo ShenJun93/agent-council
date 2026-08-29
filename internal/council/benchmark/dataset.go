@@ -93,13 +93,17 @@ var h2DatasetVersion = datasetVersion{"H2", H2BenchmarkID, H2DatasetSchemaVersio
 var h3DatasetVersion = datasetVersion{"H3", H3BenchmarkID, H3DatasetSchemaVersion, H3CasesSchemaVersion, H3RubricSchemaVersion}
 var h4DatasetVersion = datasetVersion{"H4", H4BenchmarkID, H4DatasetSchemaVersion, H4CasesSchemaVersion, H4RubricSchemaVersion}
 var h5DatasetVersion = datasetVersion{"H5", H5BenchmarkID, H5DatasetSchemaVersion, H5CasesSchemaVersion, H5RubricSchemaVersion}
+var h6DatasetVersion = datasetVersion{"H6", H6BenchmarkID, H6DatasetSchemaVersion, H6CasesSchemaVersion, H6RubricSchemaVersion}
 
 func LoadH1(root string) (Dataset, error) { return loadDataset(root, h1DatasetVersion) }
 func LoadH2(root string) (Dataset, error) { return loadDataset(root, h2DatasetVersion) }
 func LoadH3(root string) (Dataset, error) { return loadDataset(root, h3DatasetVersion) }
 func LoadH4(root string) (Dataset, error) { return loadDataset(root, h4DatasetVersion) }
-func LoadH5(root string) (Dataset, error) {
-	dataset, err := loadDataset(root, h5DatasetVersion)
+func LoadH5(root string) (Dataset, error) { return loadAdapterDataset(root, h5DatasetVersion) }
+func LoadH6(root string) (Dataset, error) { return loadAdapterDataset(root, h6DatasetVersion) }
+
+func loadAdapterDataset(root string, version datasetVersion) (Dataset, error) {
+	dataset, err := loadDataset(root, version)
 	if err != nil {
 		return Dataset{}, err
 	}
@@ -201,7 +205,7 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 		}
 
 		wantChallenger := ""
-		if version.benchmarkID == H5BenchmarkID {
+		if version.benchmarkID == H5BenchmarkID || version.benchmarkID == H6BenchmarkID {
 			if envelope.ChallengerProvider != "" {
 				return Dataset{}, fmt.Errorf("case %q must not bind challenger provider in H5", envelope.ID)
 			}
@@ -231,7 +235,7 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 		}
 
 		var provider councilruntime.Provider
-		if version.benchmarkID != H5BenchmarkID {
+		if version.benchmarkID != H5BenchmarkID && version.benchmarkID != H6BenchmarkID {
 			provider = councilruntime.ProviderClaude
 			if wantChallenger == "codex" {
 				provider = councilruntime.ProviderCodex
@@ -263,8 +267,8 @@ func loadDataset(root string, version datasetVersion) (Dataset, error) {
 }
 
 func validateManifest(manifest Manifest, rubricBytes, casesBytes []byte, version datasetVersion) error {
-	if version.benchmarkID != H5BenchmarkID && manifest.AdapterPolicySHA256 != "" {
-		return fmt.Errorf("manifest adapter_policy_sha256 is only valid for H5")
+	if version.benchmarkID != H5BenchmarkID && version.benchmarkID != H6BenchmarkID && manifest.AdapterPolicySHA256 != "" {
+		return fmt.Errorf("manifest adapter_policy_sha256 is only valid for H5/H6")
 	}
 	if manifest.SchemaVersion != version.datasetSchema {
 		return fmt.Errorf("manifest schema_version %q, want %q", manifest.SchemaVersion, version.datasetSchema)

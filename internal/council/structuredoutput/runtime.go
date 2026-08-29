@@ -11,11 +11,16 @@ import (
 )
 
 type Runtime struct {
-	Inner councilruntime.AgentRuntime
+	Inner   councilruntime.AgentRuntime
+	Profile SchemaProfile
 }
 
 func Wrap(inner councilruntime.AgentRuntime) councilruntime.AgentRuntime {
-	return &Runtime{Inner: inner}
+	return &Runtime{Inner: inner, Profile: SchemaProfileLegacy}
+}
+
+func WrapProfile(inner councilruntime.AgentRuntime, profile SchemaProfile) councilruntime.AgentRuntime {
+	return &Runtime{Inner: inner, Profile: profile}
 }
 
 func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (councilruntime.AgentResponse, error) {
@@ -25,7 +30,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	if len(bytes.TrimSpace(req.OutputSchema)) != 0 {
 		return councilruntime.AgentResponse{}, isolation(errors.New("output schema must be injected by H4 runtime"))
 	}
-	schema, err := SchemaFor(req.Role, req.Phase)
+	schema, err := SchemaForProfile(req.Role, req.Phase, r.Profile)
 	if err != nil {
 		return councilruntime.AgentResponse{}, isolation(err)
 	}

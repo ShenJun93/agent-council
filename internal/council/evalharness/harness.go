@@ -35,10 +35,11 @@ type AdaptiveJudgeRuntimes struct {
 }
 
 type Harness struct {
-	Claude   councilruntime.AgentRuntime
-	Codex    councilruntime.AgentRuntime
-	Adaptive *AdaptiveJudgeRuntimes
-	TempRoot string
+	Claude           councilruntime.AgentRuntime
+	Codex            councilruntime.AgentRuntime
+	Adaptive         *AdaptiveJudgeRuntimes
+	CitationContract CitationContract
+	TempRoot         string
 }
 
 func (h Harness) validateJudgeRuntimes() error {
@@ -136,6 +137,9 @@ func (h Harness) prepare(req ProblemRequest) (preparedProblem, error) {
 		return preparedProblem{}, fmt.Errorf("eval temp root is required")
 	}
 	if err := h.validateJudgeRuntimes(); err != nil {
+		return preparedProblem{}, err
+	}
+	if err := validateCitationContract(h.CitationContract); err != nil {
 		return preparedProblem{}, err
 	}
 	if err := validateRiskPolicy(req.RiskPolicy); err != nil {
@@ -249,6 +253,9 @@ func (h Harness) evaluateCandidate(
 	}
 
 	prompt, renderErr := renderJudgePrompt(workspace, artifacts)
+	if h.CitationContract == CitationContractStructuredV1 {
+		prompt, renderErr = renderH6JudgePrompt(workspace, artifacts)
+	}
 	if renderErr != nil {
 		cleanupErr := workspace.Cleanup()
 		if cleanupErr != nil {
@@ -280,15 +287,9 @@ func (h Harness) evaluateCandidate(
 		return JudgeScore{}, &councilruntime.RunError{Class: councilruntime.FailureIsolation, Err: fmt.Errorf("judge provider substitution: got %q want %q", response.Provider, expectedProvider)}
 	}
 
-	var artifact JudgeArtifact
-	if err := decodeStrictJudgeJSON(response.Stdout, &artifact); err != nil {
+	artifact, err := decodeJudgeForContract(response.Stdout, h.CitationContract, prepared.dimensions, arm.candidate)
+	if err != nil {
 		return JudgeScore{}, err
-	}
-	if err := validateJudgeArtifact(artifact, prepared.dimensions); err != nil {
-		return JudgeScore{}, malformedEval(err)
-	}
-	if err := validateReliedCitations(artifact, arm.candidate); err != nil {
-		return JudgeScore{}, malformedEval(err)
 	}
 
 	return JudgeScore{
