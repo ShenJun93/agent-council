@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ShenJun93/agent-council/internal/council/benchmark"
 )
@@ -31,6 +32,24 @@ func TestRunRoutesH7BenchmarkWithFrozenFlags(t *testing.T) {
 	}
 	if len(got.RunID) < 4 || got.RunID[:3] != "h7-" {
 		t.Fatalf("run id=%q", got.RunID)
+	}
+}
+
+func TestNewH7RunIDIsFreshAtSameTimestamp(t *testing.T) {
+	now := time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)
+	first, err := newH7RunID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newH7RunID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("run ids collided: %q", first)
+	}
+	if first[:3] != "h7-" || second[:3] != "h7-" {
+		t.Fatalf("run ids=%q %q", first, second)
 	}
 }
 

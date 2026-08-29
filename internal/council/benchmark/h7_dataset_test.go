@@ -56,6 +56,10 @@ func TestCommittedH7PreservesH6PayloadsAndPolicyBytes(t *testing.T) {
 	if h6.AdapterPolicySHA256 != h7.AdapterPolicySHA256 {
 		t.Fatal("adapter policy hash drift")
 	}
+	normalizedH7Rubric := bytes.Replace(h7.Rubric, []byte(H7RubricSchemaVersion), []byte(H6RubricSchemaVersion), 1)
+	if !bytes.Equal(h6.Rubric, normalizedH7Rubric) {
+		t.Fatal("rubric semantic drift beyond schema_version")
+	}
 	if len(h6.Cases) != len(h7.Cases) {
 		t.Fatal("case count drift")
 	}
