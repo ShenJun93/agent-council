@@ -7,10 +7,12 @@ import (
 	"testing"
 )
 
+func boolPointer(value bool) *bool { return &value }
+
 func TestH8RejectsUnverifiedReliedOnCitation(t *testing.T) {
 	_, _, arm := h7DuplicateSourceCandidate(t)
 	key := CitationOccurrenceKey{ArtifactID: "problem", Locator: "constraints[1]", Claim: "claim one"}
-	wire := H8JudgeArtifact{CitationChecks: []H8CitationCheck{{Reference: key, Status: "unverified", ReliedOn: true, Note: "partially supported inference"}}}
+	wire := H8JudgeArtifact{CitationChecks: []H8CitationCheck{{Reference: key, Status: "unverified", ReliedOn: boolPointer(true), Note: "partially supported inference"}}}
 	if err := validateH8CitationReferences(wire, arm.candidate); err == nil || !strings.Contains(err.Error(), "not verified") {
 		t.Fatalf("expected contradictory score reliance to fail closed, got %v", err)
 	}
