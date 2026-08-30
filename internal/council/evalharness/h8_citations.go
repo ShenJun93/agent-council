@@ -23,13 +23,13 @@ type H8CitationCheck struct {
 }
 
 type H8JudgeArtifact struct {
-	OverallScore   float64                 `json:"overall_score"`
-	Dimensions     map[string]float64      `json:"dimensions"`
-	CitationChecks []H8CitationCheck       `json:"citation_checks"`
-	CriticalErrors []string                `json:"critical_errors"`
-	Strengths      []string                `json:"strengths"`
-	Weaknesses     []string                `json:"weaknesses"`
-	Confidence     float64                 `json:"confidence"`
+	OverallScore   float64            `json:"overall_score"`
+	Dimensions     map[string]float64 `json:"dimensions"`
+	CitationChecks []H8CitationCheck  `json:"citation_checks"`
+	CriticalErrors []string           `json:"critical_errors"`
+	Strengths      []string           `json:"strengths"`
+	Weaknesses     []string           `json:"weaknesses"`
+	Confidence     float64            `json:"confidence"`
 }
 
 const h8JudgeInstruction = `EVALUATION_JUDGE
@@ -119,7 +119,7 @@ func (h H8Harness) evaluateCandidateH8(ctx context.Context, req ProblemRequest, 
 	return JudgeScore{
 		Slot: slot, Provider: response.Provider, AdapterID: response.AdapterID,
 		FailoverIndex: response.FailoverIndex, FailoverTrigger: response.FailoverTrigger, Artifact: artifact,
-		InputHashes: map[string]string{"problem": prepared.problemHash, "rubric": prepared.rubricHash, "reference-set": prepared.referenceHash, "candidate": digestHex(arm.content)},
+		InputHashes:  map[string]string{"problem": prepared.problemHash, "rubric": prepared.rubricHash, "reference-set": prepared.referenceHash, "candidate": digestHex(arm.content)},
 		OutputSHA256: digestHex([]byte(response.Stdout)), StartedAt: response.StartedAt, FinishedAt: response.FinishedAt,
 	}, nil
 }
