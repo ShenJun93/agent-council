@@ -57,7 +57,7 @@ BENCHMARK_UPPER="${BENCHMARK^^}"
 
 H4_FROZEN_SHA="375be888a49e261667362063e8ec03a2c42e152f"
 H4_MANIFEST_SHA="1286bbaa9bc630308f2cf81ac0811f11dc084c1d3092810b54ae3301eab0cad0"
-H4_RUBRIC_SHA="6439c683279e3e7997bcfa19e42b8a42d1d354414c16d1e7a5cb6bd4141d6b39"
+H4_RUBRIC_SHA="6439c683279e3e7997bcfa19e42b8a42d1d3544141d6b39"
 H4_CASES_SHA="1ec5d7aa3d36efbeffc53d4455143bb2a542326a954d77a77c006f8cbe77cfa8"
 tmp="$(mktemp "${TMPDIR:-/tmp}/benchmark-workflow.XXXXXX")"
 cleanup() { rm -f "$tmp"; }
@@ -77,7 +77,7 @@ if [[ -n "$policy_sha" ]]; then
   sed -i "/sha256sum benchmarks\/$BENCHMARK\/manifest.json/ s#benchmarks/$BENCHMARK/cases.json#benchmarks/$BENCHMARK/cases.json benchmarks/$BENCHMARK/adapter-policy.json#" "$tmp"
 fi
 
-if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" ]]; then
+if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" || "$BENCHMARK" == "h8" ]]; then
   preflight="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-preflight.XXXXXX")"
   rewritten="$(mktemp "${TMPDIR:-/tmp}/${BENCHMARK}-workflow.XXXXXX")"
   cat > "$preflight" <<'EOF'
