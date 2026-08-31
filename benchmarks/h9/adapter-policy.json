@@ -1,0 +1,1 @@
+{"schema_version":"council.h9-adapter-policy.v0","adapters":[{"id":"human-chatgpt-session","provider_family":"chatgpt","transport":"human-chatgpt-session","auth_class":"chatgpt-subscription","interaction":"human-broker"}],"slots":{"eval-judge-1":["human-chatgpt-session"],"eval-judge-2":["human-chatgpt-session"]}}
