@@ -1,7 +1,7 @@
 # H8 Evaluator Score-Reliance Contract Design
 
-**Date:** 2026-08-31  
-**Issue:** #45  
+**Date:** 2026-08-31
+**Issue:** #45
 **Status:** Approved by standing automation-first authorization
 
 ## Initiating Failure
