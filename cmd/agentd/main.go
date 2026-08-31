@@ -39,7 +39,14 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithH7BenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark, executeH5Benchmark, executeH6Benchmark, executeH7Benchmark)
+	return runWithH8BenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark, executeH5Benchmark, executeH6Benchmark, executeH7Benchmark, executeH8Benchmark)
+}
+
+func runWithH8BenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 h4Executor, executeH5 h5Executor, executeH6 h6Executor, executeH7 h7Executor, executeH8 h8Executor) int {
+	if len(args) >= 3 && args[0] == "council" && args[1] == "benchmark" && args[2] == "h8" {
+		return runCouncilBenchmarkH8(args[3:], stdout, stderr, executeH8)
+	}
+	return runWithH7BenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, executeH3, executeH4, executeH5, executeH6, executeH7)
 }
 
 func runWithH7BenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 h4Executor, executeH5 h5Executor, executeH6 h6Executor, executeH7 h7Executor) int {
