@@ -59,7 +59,7 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 		t.Fatalf("request=%s", data)
 	}
 	joined := strings.ToLower(strings.Join(packet.Instructions, " "))
-	if !strings.Contains(joined, "current") || strings.Contains(joined, "open a new chat") {
+	if !strings.Contains(joined, "current chatgpt web orchestration session") || strings.Contains(joined, "open a new chat in chatgpt with no prior context") {
 		t.Fatalf("instructions=%v", packet.Instructions)
 	}
 
