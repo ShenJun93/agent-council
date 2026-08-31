@@ -189,7 +189,7 @@ func newH8Evaluator(registry h8Registry, policy benchmark.H5AdapterPolicy, tempR
 	if err != nil {
 		return nil, err
 	}
-	return evalharness.Harness{Adaptive: &evalharness.AdaptiveJudgeRuntimes{Judge1: j1, Judge2: j2}, TempRoot: tempRoot, CitationContract: evalharness.CitationContractStructuredV3}, nil
+	return evalharness.H8Harness{Harness: evalharness.Harness{Adaptive: &evalharness.AdaptiveJudgeRuntimes{Judge1: j1, Judge2: j2}, TempRoot: tempRoot, CitationContract: evalharness.CitationContractStructuredV3}}, nil
 }
 
 func executeH8Benchmark(ctx context.Context, req h8ExecutionRequest) (benchmark.RunResult, error) {
