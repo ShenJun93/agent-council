@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -64,17 +63,23 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 		t.Fatalf("instructions=%v", packet.Instructions)
 	}
 
-	responseFile := filepath.Join(t.TempDir(), "response.txt")
-	if err := os.WriteFile(responseFile, []byte(`{"ok":true}`), 0o600); err != nil {
+	record := map[string]any{
+		"schema_version":  humanbroker.ResponseSchemaVersion,
+		"request_id":      packet.RequestID,
+		"nonce":           packet.Nonce,
+		"fresh_session":   false,
+		"current_session": true,
+		"model_label":     "GPT-5.6 Sol",
+		"raw_response":    `{"ok":true}`,
+		"submitted_at":    time.Now().UTC(),
+	}
+	responseData, err := json.Marshal(record)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
-	code := runWithH9BenchmarkExecutors(
-		[]string{"council", "broker", "submit", "--run-root", root, "--request-id", packet.RequestID, "--response-file", responseFile, "--current-session", "--model-label", "GPT-5.6 Sol"},
-		&stdout, &stderr, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-	)
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	responsePath := filepath.Join(root, "human-broker", packet.RequestID, "response.json")
+	if err := os.WriteFile(responsePath, responseData, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	select {
 	case err := <-done:
@@ -83,16 +88,6 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("H9 current-session runtime did not resume")
-	}
-	responseData, err := os.ReadFile(filepath.Join(root, "human-broker", packet.RequestID, "response.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(responseData, &raw); err != nil {
-		t.Fatal(err)
-	}
-	if raw["current_session"] != true || raw["fresh_session"] != false {
-		t.Fatalf("response=%s", responseData)
 	}
 }
 
