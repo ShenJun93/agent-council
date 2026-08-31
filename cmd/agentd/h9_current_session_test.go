@@ -12,6 +12,7 @@ import (
 
 	"github.com/ShenJun93/agent-council/internal/council/adapterpool"
 	"github.com/ShenJun93/agent-council/internal/council/benchmark"
+	"github.com/ShenJun93/agent-council/internal/council/evalharness"
 	"github.com/ShenJun93/agent-council/internal/council/humanbroker"
 	councilruntime "github.com/ShenJun93/agent-council/internal/council/runtime"
 )
@@ -34,8 +35,7 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 	go func() {
 		_, err := adapter.Runtime.Run(context.Background(), councilruntime.AgentRequest{
 			RunID: "h9-test", RunRoot: root, SlotID: "eval-judge-1", AdapterID: humanbroker.DefaultAdapterID,
-			Participant: "judge-1", Role: "eval-judge", Phase: "eval", Prompt: "JUDGE",
-			OutputSchema: json.RawMessage(`{"type":"object"}`),
+			Participant: "judge-1", Role: "judge", Phase: evalharness.PhaseEvalJudge, Prompt: "JUDGE",
 		})
 		done <- err
 	}()
