@@ -128,7 +128,7 @@ func newH9Registry(req h9ExecutionRequest) (h9Registry, error) {
 		id: {
 			ID:       id,
 			Provider: provider,
-			Runtime:  wrapH9Adapter(&humanbroker.Runtime{}, desc.ID, provider),
+			Runtime:  wrapH9Adapter(&humanbroker.Runtime{CurrentSession: true}, desc.ID, provider),
 		},
 	}, nil
 }

@@ -25,11 +25,12 @@ const defaultWaitTimeout = 12 * time.Hour
 const defaultPollInterval = 2 * time.Second
 
 type Runtime struct {
-	WaitTimeout  time.Duration
-	PollInterval time.Duration
-	NewRequestID func() (string, error)
-	NewNonce     func() (string, error)
-	Now          func() time.Time
+	WaitTimeout    time.Duration
+	PollInterval   time.Duration
+	CurrentSession bool
+	NewRequestID   func() (string, error)
+	NewNonce       func() (string, error)
+	Now            func() time.Time
 }
 
 func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (councilruntime.AgentResponse, error) {
@@ -49,18 +50,31 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	if adapterID == "" {
 		adapterID = DefaultAdapterID
 	}
+	currentSession := r != nil && r.CurrentSession
+	instructions := []string{
+		"Open a New Chat in ChatGPT with no prior context.",
+		"Paste only pasteable_prompt into that fresh session; do not add files, tools, browsing, or prior conversation context.",
+		"Return the raw assistant response unchanged and attest fresh_session=true when submitting.",
+	}
+	if currentSession {
+		instructions = []string{
+			"Use the current ChatGPT web orchestration session; do not open a New Chat or switch providers.",
+			"Treat pasteable_prompt as the complete benchmark task input for this role and do not incorporate unrelated prior conversation context.",
+			"Return the raw assistant response unchanged and attest current_session=true and fresh_session=false when submitting.",
+		}
+	}
 	pasteable := buildPasteablePrompt(req.Prompt, req.OutputSchema)
 	packet := RequestPacket{
 		SchemaVersion: RequestSchemaVersion, RequestID: requestID, Nonce: nonce,
 		RunID: req.RunID, SlotID: req.SlotID, AdapterID: adapterID,
 		ProviderFamily: string(councilruntime.ProviderChatGPT), Participant: req.Participant,
 		FailoverIndex: req.FailoverIndex, FailoverTrigger: req.FailoverTrigger,
-		Instructions: []string{"Open a New Chat in ChatGPT with no prior context.", "Paste only pasteable_prompt into that fresh session; do not add files, tools, browsing, or prior conversation context.", "Return the raw assistant response unchanged and attest fresh_session=true when submitting."},
+		Instructions: instructions,
 		Role:         req.Role, Phase: req.Phase, Prompt: req.Prompt,
 		OutputSchema: append(json.RawMessage(nil), req.OutputSchema...),
 		PromptSHA256: digest([]byte(req.Prompt)), OutputSchemaSHA256: digest(req.OutputSchema),
 		PasteablePrompt: pasteable, PasteablePromptSHA256: digest([]byte(pasteable)),
-		RequireFreshSession: true, CreatedAt: started,
+		RequireFreshSession: !currentSession, RequireCurrentSession: currentSession, CreatedAt: started,
 	}
 	relDir := filepath.Join("human-broker", requestID)
 	if _, err := safestore.WriteExclusive(req.RunRoot, filepath.Join(relDir, "prompt.txt"), []byte(pasteable)); err != nil {
@@ -74,7 +88,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 		return councilruntime.AgentResponse{}, isolation(fmt.Errorf("write broker packet: %w", err))
 	}
 
-	record, err := r.wait(ctx, req.RunRoot, requestID, nonce)
+	record, err := r.wait(ctx, req.RunRoot, requestID, nonce, !currentSession, currentSession)
 	if err != nil {
 		return councilruntime.AgentResponse{}, err
 	}
@@ -86,7 +100,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	}, nil
 }
 
-func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string) (ResponseRecord, error) {
+func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string, requireFresh, requireCurrent bool) (ResponseRecord, error) {
 	timeout := r.WaitTimeout
 	if timeout <= 0 {
 		timeout = defaultWaitTimeout
@@ -105,7 +119,7 @@ func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string) (Resp
 			return ResponseRecord{}, isolation(err)
 		}
 		if found {
-			if err := validateRecord(record, requestID, nonce); err != nil {
+			if err := validateRecord(record, requestID, nonce, requireFresh, requireCurrent); err != nil {
 				return ResponseRecord{}, &councilruntime.RunError{Class: councilruntime.FailureMalformedOutput, Err: err}
 			}
 			return record, nil

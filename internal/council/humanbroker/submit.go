@@ -26,8 +26,11 @@ func LoadRequest(runRoot, requestID string) (RequestPacket, error) {
 	if err := decodeStrict(data, &packet); err != nil {
 		return RequestPacket{}, fmt.Errorf("decode broker request: %w", err)
 	}
-	if packet.SchemaVersion != RequestSchemaVersion || packet.RequestID != requestID || packet.Nonce == "" || packet.AdapterID != DefaultAdapterID || packet.ProviderFamily != "chatgpt" || !packet.RequireFreshSession {
+	if packet.SchemaVersion != RequestSchemaVersion || packet.RequestID != requestID || packet.Nonce == "" || packet.AdapterID != DefaultAdapterID || packet.ProviderFamily != "chatgpt" {
 		return RequestPacket{}, fmt.Errorf("invalid broker request %q", requestID)
+	}
+	if packet.RequireFreshSession == packet.RequireCurrentSession {
+		return RequestPacket{}, fmt.Errorf("broker request %q must require exactly one ChatGPT session mode", requestID)
 	}
 	return packet, nil
 }
@@ -43,8 +46,8 @@ func SubmitResponse(runRoot string, submission Submission) error {
 	if packet.RequestID != submission.RequestID || packet.Nonce != submission.Nonce {
 		return fmt.Errorf("broker request identity mismatch")
 	}
-	if !submission.FreshSession {
-		return fmt.Errorf("fresh ChatGPT session attestation is required")
+	if err := validateSessionAttestation(packet.RequireFreshSession, packet.RequireCurrentSession, submission.FreshSession, submission.CurrentSession); err != nil {
+		return err
 	}
 	if strings.TrimSpace(submission.RawResponse) == "" {
 		return fmt.Errorf("raw ChatGPT response is required")
@@ -61,18 +64,34 @@ func SubmitResponse(runRoot string, submission Submission) error {
 	return nil
 }
 
-func validateRecord(record ResponseRecord, requestID, nonce string) error {
+func validateRecord(record ResponseRecord, requestID, nonce string, requireFresh, requireCurrent bool) error {
 	if record.SchemaVersion != ResponseSchemaVersion {
 		return fmt.Errorf("response schema_version %q, want %q", record.SchemaVersion, ResponseSchemaVersion)
 	}
 	if record.RequestID != requestID || record.Nonce != nonce {
 		return fmt.Errorf("broker response identity mismatch")
 	}
-	if !record.FreshSession {
-		return fmt.Errorf("fresh ChatGPT session attestation is required")
+	if err := validateSessionAttestation(requireFresh, requireCurrent, record.FreshSession, record.CurrentSession); err != nil {
+		return err
 	}
 	if strings.TrimSpace(record.RawResponse) == "" {
 		return fmt.Errorf("raw ChatGPT response is required")
+	}
+	return nil
+}
+
+func validateSessionAttestation(requireFresh, requireCurrent, fresh, current bool) error {
+	if requireFresh == requireCurrent {
+		return fmt.Errorf("broker request must require exactly one ChatGPT session mode")
+	}
+	if fresh == current {
+		return fmt.Errorf("broker response must attest exactly one ChatGPT session mode")
+	}
+	if requireFresh && !fresh {
+		return fmt.Errorf("fresh ChatGPT session attestation is required")
+	}
+	if requireCurrent && !current {
+		return fmt.Errorf("current ChatGPT session attestation is required")
 	}
 	return nil
 }

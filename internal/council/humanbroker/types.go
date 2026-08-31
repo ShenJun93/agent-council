@@ -34,15 +34,17 @@ type RequestPacket struct {
 	PasteablePrompt       string                      `json:"pasteable_prompt"`
 	PasteablePromptSHA256 string                      `json:"pasteable_prompt_sha256"`
 	RequireFreshSession   bool                        `json:"require_fresh_session"`
+	RequireCurrentSession bool                        `json:"require_current_session,omitempty"`
 	CreatedAt             time.Time                   `json:"created_at"`
 }
 
 type Submission struct {
-	RequestID    string `json:"request_id"`
-	Nonce        string `json:"nonce"`
-	FreshSession bool   `json:"fresh_session"`
-	ModelLabel   string `json:"model_label,omitempty"`
-	RawResponse  string `json:"raw_response"`
+	RequestID      string `json:"request_id"`
+	Nonce          string `json:"nonce"`
+	FreshSession   bool   `json:"fresh_session"`
+	CurrentSession bool   `json:"current_session,omitempty"`
+	ModelLabel     string `json:"model_label,omitempty"`
+	RawResponse    string `json:"raw_response"`
 }
 
 type ResponseRecord struct {
