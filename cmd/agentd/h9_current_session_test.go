@@ -20,7 +20,7 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 	root := t.TempDir()
 	policy := benchmark.H5AdapterPolicy{
 		Adapters: []benchmark.H5AdapterDescriptor{{ID: humanbroker.DefaultAdapterID, ProviderFamily: "chatgpt", Transport: "human-chatgpt-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"}},
-		Slots: map[string][]string{"eval-judge-1": {humanbroker.DefaultAdapterID}, "eval-judge-2": {humanbroker.DefaultAdapterID}},
+		Slots:    map[string][]string{"eval-judge-1": {humanbroker.DefaultAdapterID}, "eval-judge-2": {humanbroker.DefaultAdapterID}},
 	}
 	registry, err := newH9Registry(h9ExecutionRequest{Dataset: benchmark.Dataset{AdapterPolicy: &policy}})
 	if err != nil {
