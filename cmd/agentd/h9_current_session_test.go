@@ -30,9 +30,10 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 	if !ok {
 		t.Fatal("H9 human broker adapter missing")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := adapter.Runtime.Run(context.Background(), councilruntime.AgentRequest{
+		_, err := adapter.Runtime.Run(ctx, councilruntime.AgentRequest{
 			RunID: "h9-test", RunRoot: root, SlotID: "eval-judge-1", AdapterID: humanbroker.DefaultAdapterID,
 			Participant: "judge-1", Role: "judge", Phase: evalharness.PhaseEvalJudge, Prompt: "JUDGE",
 		})
@@ -62,11 +63,32 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 	if !strings.Contains(joined, "current chatgpt web orchestration session") || strings.Contains(joined, "open a new chat in chatgpt with no prior context") {
 		t.Fatalf("instructions=%v", packet.Instructions)
 	}
+	cancel()
+	<-done
 
+	currentRoot := t.TempDir()
+	currentRuntime := &humanbroker.Runtime{CurrentSession: true, PollInterval: 5 * time.Millisecond, WaitTimeout: time.Second}
+	currentDone := make(chan error, 1)
+	go func() {
+		_, err := currentRuntime.Run(context.Background(), councilruntime.AgentRequest{
+			RunID: "h9-current-test", RunRoot: currentRoot, SlotID: "eval-judge-1", AdapterID: humanbroker.DefaultAdapterID,
+			Participant: "judge-1", Role: "judge", Phase: "eval", Prompt: "JUDGE",
+		})
+		currentDone <- err
+	}()
+	currentRequestPath := waitForH9BrokerRequest(t, currentRoot)
+	currentData, err := os.ReadFile(currentRequestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentPacket humanbroker.RequestPacket
+	if err := json.Unmarshal(currentData, &currentPacket); err != nil {
+		t.Fatal(err)
+	}
 	record := map[string]any{
 		"schema_version":  humanbroker.ResponseSchemaVersion,
-		"request_id":      packet.RequestID,
-		"nonce":           packet.Nonce,
+		"request_id":      currentPacket.RequestID,
+		"nonce":           currentPacket.Nonce,
 		"fresh_session":   false,
 		"current_session": true,
 		"model_label":     "GPT-5.6 Sol",
@@ -77,17 +99,17 @@ func TestH9BrokerUsesCurrentOrchestratorSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	responsePath := filepath.Join(root, "human-broker", packet.RequestID, "response.json")
+	responsePath := filepath.Join(currentRoot, "human-broker", currentPacket.RequestID, "response.json")
 	if err := os.WriteFile(responsePath, responseData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case err := <-done:
+	case err := <-currentDone:
 		if err != nil {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("H9 current-session runtime did not resume")
+		t.Fatal("current-session broker did not resume")
 	}
 }
 
