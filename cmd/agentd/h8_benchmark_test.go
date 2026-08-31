@@ -79,9 +79,9 @@ func TestH8ExecutionUsesH8SchemaProfileAndV3Evaluator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, ok := evaluator.(evalharness.Harness)
+	h, ok := evaluator.(evalharness.H8Harness)
 	if !ok {
-		t.Fatalf("evaluator type=%T", evaluator)
+		t.Fatalf("evaluator type=%T, want evalharness.H8Harness", evaluator)
 	}
 	if h.CitationContract != evalharness.CitationContractStructuredV3 {
 		t.Fatalf("citation contract=%v want V3", h.CitationContract)
