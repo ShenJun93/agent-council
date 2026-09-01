@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload full or partial H1 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: h1-frozen-${{ github.run_id }}
           path: |

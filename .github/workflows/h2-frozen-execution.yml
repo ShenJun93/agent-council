@@ -147,7 +147,7 @@ jobs:
 
       - name: Upload full or partial H2 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: h2-frozen-${{ github.run_id }}
           path: |

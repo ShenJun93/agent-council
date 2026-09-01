@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload full or partial H5 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: h5-frozen-${{ github.run_id }}
           path: |
