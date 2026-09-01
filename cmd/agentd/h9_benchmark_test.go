@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +92,57 @@ func TestNewH9RegistryContainsOnlyHumanChatGPT(t *testing.T) {
 	}
 }
 
+func TestH9RegistryUsesCurrentOrchestratorSessionBroker(t *testing.T) {
+	policy := h9PolicyForTest()
+	registry, err := newH9Registry(h9ExecutionRequest{Dataset: benchmark.Dataset{AdapterPolicy: &policy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := adapterpool.AdapterID(humanbroker.DefaultAdapterID)
+	adapter := registry[id]
+	runRoot := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, _ = adapter.Runtime.Run(ctx, councilruntime.AgentRequest{
+		RunID:       "h9-current-session-test",
+		RunRoot:     runRoot,
+		SlotID:      "eval-judge-1",
+		AdapterID:   string(id),
+		Participant: "judge-1",
+		Role:        "judge",
+		Phase:       "eval",
+		Prompt:      "test prompt",
+	})
+	entries, err := os.ReadDir(filepath.Join(runRoot, "human-broker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("broker requests=%d", len(entries))
+	}
+	packet, err := humanbroker.LoadRequest(runRoot, entries[0].Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if packet.RequireFreshSession {
+		t.Fatal("H9 broker must not require a fresh ChatGPT session")
+	}
+	if !packet.RequireCurrentSession {
+		t.Fatal("H9 broker must require the current orchestrating ChatGPT session")
+	}
+	if !strings.Contains(strings.Join(packet.Instructions, "\n"), "current orchestrating ChatGPT conversation") {
+		t.Fatalf("instructions=%q", packet.Instructions)
+	}
+	if err := humanbroker.SubmitResponse(runRoot, humanbroker.Submission{
+		RequestID:      packet.RequestID,
+		Nonce:          packet.Nonce,
+		CurrentSession: true,
+		RawResponse:    `{}`,
+	}); err != nil {
+		t.Fatalf("submit current-session response: %v", err)
+	}
+}
+
 func TestH9EvaluatorReusesH8V3Contract(t *testing.T) {
 	wrapped := wrapH9Adapter(h9NoopRuntime{}, humanbroker.DefaultAdapterID, councilruntime.ProviderChatGPT)
 	id := adapterpool.AdapterID(humanbroker.DefaultAdapterID)
@@ -146,6 +199,6 @@ func TestH9DoesNotChangeH8EvaluatorContractOrProfile(t *testing.T) {
 func h9PolicyForTest() benchmark.H5AdapterPolicy {
 	return benchmark.H5AdapterPolicy{
 		SchemaVersion: benchmark.H9AdapterPolicySchemaVersion,
-		Adapters:      []benchmark.H5AdapterDescriptor{{ID: humanbroker.DefaultAdapterID, ProviderFamily: "chatgpt", Transport: "human-chatgpt-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"}},
+		Adapters:      []benchmark.H5AdapterDescriptor{{ID: humanbroker.DefaultAdapterID, ProviderFamily: "chatgpt", Transport: "chatgpt-web-current-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"}},
 	}
 }
