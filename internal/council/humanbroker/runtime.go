@@ -25,11 +25,12 @@ const defaultWaitTimeout = 12 * time.Hour
 const defaultPollInterval = 2 * time.Second
 
 type Runtime struct {
-	WaitTimeout  time.Duration
-	PollInterval time.Duration
-	NewRequestID func() (string, error)
-	NewNonce     func() (string, error)
-	Now          func() time.Time
+	WaitTimeout       time.Duration
+	PollInterval      time.Duration
+	UseCurrentSession bool
+	NewRequestID      func() (string, error)
+	NewNonce          func() (string, error)
+	Now               func() time.Time
 }
 
 func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (councilruntime.AgentResponse, error) {
@@ -50,17 +51,18 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 		adapterID = DefaultAdapterID
 	}
 	pasteable := buildPasteablePrompt(req.Prompt, req.OutputSchema)
+	instructions, requireFresh, requireCurrent := brokerSessionPolicy(r != nil && r.UseCurrentSession)
 	packet := RequestPacket{
 		SchemaVersion: RequestSchemaVersion, RequestID: requestID, Nonce: nonce,
 		RunID: req.RunID, SlotID: req.SlotID, AdapterID: adapterID,
 		ProviderFamily: string(councilruntime.ProviderChatGPT), Participant: req.Participant,
 		FailoverIndex: req.FailoverIndex, FailoverTrigger: req.FailoverTrigger,
-		Instructions: []string{"Open a New Chat in ChatGPT with no prior context.", "Paste only pasteable_prompt into that fresh session; do not add files, tools, browsing, or prior conversation context.", "Return the raw assistant response unchanged and attest fresh_session=true when submitting."},
+		Instructions: instructions,
 		Role:         req.Role, Phase: req.Phase, Prompt: req.Prompt,
 		OutputSchema: append(json.RawMessage(nil), req.OutputSchema...),
 		PromptSHA256: digest([]byte(req.Prompt)), OutputSchemaSHA256: digest(req.OutputSchema),
 		PasteablePrompt: pasteable, PasteablePromptSHA256: digest([]byte(pasteable)),
-		RequireFreshSession: true, CreatedAt: started,
+		RequireFreshSession: requireFresh, RequireCurrentSession: requireCurrent, CreatedAt: started,
 	}
 	relDir := filepath.Join("human-broker", requestID)
 	if _, err := safestore.WriteExclusive(req.RunRoot, filepath.Join(relDir, "prompt.txt"), []byte(pasteable)); err != nil {
@@ -74,7 +76,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 		return councilruntime.AgentResponse{}, isolation(fmt.Errorf("write broker packet: %w", err))
 	}
 
-	record, err := r.wait(ctx, req.RunRoot, requestID, nonce)
+	record, err := r.wait(ctx, req.RunRoot, requestID, nonce, requireFresh, requireCurrent)
 	if err != nil {
 		return councilruntime.AgentResponse{}, err
 	}
@@ -86,7 +88,7 @@ func (r *Runtime) Run(ctx context.Context, req councilruntime.AgentRequest) (cou
 	}, nil
 }
 
-func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string) (ResponseRecord, error) {
+func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string, requireFresh, requireCurrent bool) (ResponseRecord, error) {
 	timeout := r.WaitTimeout
 	if timeout <= 0 {
 		timeout = defaultWaitTimeout
@@ -105,7 +107,7 @@ func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string) (Resp
 			return ResponseRecord{}, isolation(err)
 		}
 		if found {
-			if err := validateRecord(record, requestID, nonce); err != nil {
+			if err := validateRecord(record, requestID, nonce, requireFresh, requireCurrent); err != nil {
 				return ResponseRecord{}, &councilruntime.RunError{Class: councilruntime.FailureMalformedOutput, Err: err}
 			}
 			return record, nil
@@ -118,6 +120,22 @@ func (r *Runtime) wait(ctx context.Context, root, requestID, nonce string) (Resp
 		case <-ticker.C:
 		}
 	}
+}
+
+func brokerSessionPolicy(useCurrent bool) ([]string, bool, bool) {
+	if useCurrent {
+		return []string{
+			"Use the current orchestrating ChatGPT conversation; do not open a New Chat.",
+			"Treat pasteable_prompt as the complete role input for this invocation; prior conversation is orchestration context and must not be used as task evidence.",
+			"Do not add files, tools, browsing, or external context to the role response.",
+			"Return the raw assistant response unchanged and attest current_session=true when submitting.",
+		}, false, true
+	}
+	return []string{
+		"Open a New Chat in ChatGPT with no prior context.",
+		"Paste only pasteable_prompt into that fresh session; do not add files, tools, browsing, or prior conversation context.",
+		"Return the raw assistant response unchanged and attest fresh_session=true when submitting.",
+	}, true, false
 }
 
 func buildPasteablePrompt(prompt string, schema json.RawMessage) string {
