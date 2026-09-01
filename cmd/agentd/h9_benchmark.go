@@ -116,7 +116,7 @@ func newH9Registry(req h9ExecutionRequest) (h9Registry, error) {
 	desc := policy.Adapters[0]
 	if desc.ID != humanbroker.DefaultAdapterID ||
 		desc.ProviderFamily != string(councilruntime.ProviderChatGPT) ||
-		desc.Transport != "chatgpt-web-current-session" ||
+		desc.Transport != "human-chatgpt-session" ||
 		desc.AuthClass != "chatgpt-subscription" ||
 		desc.Interaction != "human-broker" ||
 		strings.TrimSpace(desc.Model) != "" {
