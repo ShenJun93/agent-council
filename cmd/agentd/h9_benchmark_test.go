@@ -100,10 +100,14 @@ func TestH9RegistryUsesCurrentOrchestratorSessionBroker(t *testing.T) {
 	}
 	id := adapterpool.AdapterID(humanbroker.DefaultAdapterID)
 	adapter := registry[id]
+	profiled, ok := adapter.Runtime.(*structuredoutput.Runtime)
+	if !ok {
+		t.Fatalf("runtime type=%T", adapter.Runtime)
+	}
 	runRoot := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	_, _ = adapter.Runtime.Run(ctx, councilruntime.AgentRequest{
+	_, _ = profiled.Inner.Run(ctx, councilruntime.AgentRequest{
 		RunID:       "h9-current-session-test",
 		RunRoot:     runRoot,
 		SlotID:      "eval-judge-1",
