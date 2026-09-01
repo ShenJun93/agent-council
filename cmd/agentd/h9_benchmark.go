@@ -116,11 +116,11 @@ func newH9Registry(req h9ExecutionRequest) (h9Registry, error) {
 	desc := policy.Adapters[0]
 	if desc.ID != humanbroker.DefaultAdapterID ||
 		desc.ProviderFamily != string(councilruntime.ProviderChatGPT) ||
-		desc.Transport != "human-chatgpt-session" ||
+		desc.Transport != "chatgpt-web-current-session" ||
 		desc.AuthClass != "chatgpt-subscription" ||
 		desc.Interaction != "human-broker" ||
 		strings.TrimSpace(desc.Model) != "" {
-		return nil, fmt.Errorf("H9 registry accepts only the ChatGPT web human broker")
+		return nil, fmt.Errorf("H9 registry accepts only the current ChatGPT web session broker")
 	}
 	id := adapterpool.AdapterID(desc.ID)
 	provider := councilruntime.ProviderChatGPT
@@ -128,7 +128,7 @@ func newH9Registry(req h9ExecutionRequest) (h9Registry, error) {
 		id: {
 			ID:       id,
 			Provider: provider,
-			Runtime:  wrapH9Adapter(&humanbroker.Runtime{}, desc.ID, provider),
+			Runtime:  wrapH9Adapter(&humanbroker.Runtime{UseCurrentSession: true}, desc.ID, provider),
 		},
 	}, nil
 }
