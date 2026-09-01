@@ -199,6 +199,6 @@ func TestH9DoesNotChangeH8EvaluatorContractOrProfile(t *testing.T) {
 func h9PolicyForTest() benchmark.H5AdapterPolicy {
 	return benchmark.H5AdapterPolicy{
 		SchemaVersion: benchmark.H9AdapterPolicySchemaVersion,
-		Adapters:      []benchmark.H5AdapterDescriptor{{ID: humanbroker.DefaultAdapterID, ProviderFamily: "chatgpt", Transport: "chatgpt-web-current-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"}},
+		Adapters:      []benchmark.H5AdapterDescriptor{{ID: humanbroker.DefaultAdapterID, ProviderFamily: "chatgpt", Transport: "human-chatgpt-session", AuthClass: "chatgpt-subscription", Interaction: "human-broker"}},
 	}
 }
