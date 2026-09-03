@@ -97,26 +97,27 @@ func runCouncilBroker(args []string, stdout, stderr io.Writer) int {
 	}
 	fs := flag.NewFlagSet("agentd council broker submit", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	runRoot := fs.String("run-root", "", "H5 run root containing the human broker request")
+	runRoot := fs.String("run-root", "", "run root containing the human broker request")
 	requestID := fs.String("request-id", "", "human broker request id")
 	responseFile := fs.String("response-file", "", "file containing raw ChatGPT response")
 	fresh := fs.Bool("fresh-session", false, "attest that the response came from a brand-new ChatGPT New Chat")
+	current := fs.Bool("current-session", false, "attest that the response came from the current orchestrating ChatGPT conversation")
 	modelLabel := fs.String("model-label", "", "optional ChatGPT model label shown in the UI")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 || *runRoot == "" || *requestID == "" || *responseFile == "" {
-		_, _ = fmt.Fprintln(stderr, "broker submit requires --run-root, --request-id, --response-file, and --fresh-session")
-		return 2
-	}
-	if !*fresh {
-		_, _ = fmt.Fprintln(stderr, "broker submit requires --fresh-session attestation")
+		_, _ = fmt.Fprintln(stderr, "broker submit requires --run-root, --request-id, and --response-file")
 		return 2
 	}
 	packet, err := humanbroker.LoadRequest(*runRoot, *requestID)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "load broker request: %v\n", err)
 		return 1
+	}
+	if *fresh == *current || packet.RequireFreshSession != *fresh || packet.RequireCurrentSession != *current {
+		_, _ = fmt.Fprintln(stderr, "broker submit session attestation does not match request")
+		return 2
 	}
 	info, err := os.Lstat(*responseFile)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
@@ -128,7 +129,7 @@ func runCouncilBroker(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "read broker response: %v\n", err)
 		return 1
 	}
-	if err := humanbroker.SubmitResponse(*runRoot, humanbroker.Submission{RequestID: *requestID, Nonce: packet.Nonce, FreshSession: true, ModelLabel: *modelLabel, RawResponse: string(raw)}); err != nil {
+	if err := humanbroker.SubmitResponse(*runRoot, humanbroker.Submission{RequestID: *requestID, Nonce: packet.Nonce, FreshSession: *fresh, CurrentSession: *current, ModelLabel: *modelLabel, RawResponse: string(raw)}); err != nil {
 		_, _ = fmt.Fprintf(stderr, "submit broker response: %v\n", err)
 		return 1
 	}
@@ -428,6 +429,6 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h3 [--dataset benchmarks/h3] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h4 [--dataset benchmarks/h4] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h5 [--dataset benchmarks/h5] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
-	_, _ = fmt.Fprintln(w, "  agentd council broker submit --run-root RUN --request-id REQ --response-file FILE --fresh-session [--model-label LABEL]")
+	_, _ = fmt.Fprintln(w, "  agentd council broker submit --run-root RUN --request-id REQ --response-file FILE (--fresh-session|--current-session) [--model-label LABEL]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }

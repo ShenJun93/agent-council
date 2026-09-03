@@ -56,6 +56,32 @@ func TestCouncilBrokerSubmitReadsNonceAndResumesHumanRuntime(t *testing.T) {
 	}
 }
 
+func TestCouncilBrokerSubmitSupportsCurrentOrchestratorSession(t *testing.T) {
+	root := t.TempDir()
+	rt := &humanbroker.Runtime{UseCurrentSession: true, WaitTimeout: time.Second, PollInterval: 5 * time.Millisecond, NewRequestID: func() (string, error) { return "req-current", nil }, NewNonce: func() (string, error) { return "nonce-current", nil }}
+	req := councilruntime.AgentRequest{RunID: "h9-test", RunRoot: root, SlotID: "eval-judge-1", AdapterID: humanbroker.DefaultAdapterID, Participant: "judge-1", Role: "judge", Phase: "eval", Prompt: "JUDGE", OutputSchema: json.RawMessage(`{"type":"object"}`)}
+	done := make(chan error, 1)
+	go func() { _, err := rt.Run(context.Background(), req); done <- err }()
+	waitForBrokerRequest(t, filepath.Join(root, "human-broker", "req-current", "request.json"))
+	responseFile := filepath.Join(t.TempDir(), "response.txt")
+	if err := os.WriteFile(responseFile, []byte(`{"ok":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithH5BenchmarkExecutors([]string{"council", "broker", "submit", "--run-root", root, "--request-id", "req-current", "--response-file", responseFile, "--current-session", "--model-label", "ChatGPT"}, &stdout, &stderr, nil, nil, nil, nil, nil)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("current-session human runtime did not resume")
+	}
+}
+
 func TestCouncilBrokerShowPrintsPasteablePrompt(t *testing.T) {
 	root := t.TempDir()
 	rt := &humanbroker.Runtime{WaitTimeout: 50 * time.Millisecond, PollInterval: 5 * time.Millisecond, NewRequestID: func() (string, error) { return "req-show", nil }, NewNonce: func() (string, error) { return "nonce-show", nil }}
