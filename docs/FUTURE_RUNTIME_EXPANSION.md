@@ -200,10 +200,10 @@ The public core must never depend on those Pro features.
 
 ## 7. Gate
 
-No API/BYOK implementation before all of the following are true:
+No API/BYOK implementation before:
 
 1. Phase C proves filesystem blindness.
-2. Governed validation shows Council has measurable value over the applicable strong single-agent baseline.
+2. Phase H pilot shows Council has measurable value.
 3. A concrete pain exists that subscription-only execution cannot address economically or experimentally.
 
-The September 3, 2026 Phase H technical pilot did **not** satisfy item 2. Therefore API/BYOK implementation remains blocked. Any future attempt to establish item 2 must be separately governed and pre-registered; it is not a rerun or reinterpretation of the completed Phase H result.
+The September 3, 2026 Phase H technical pilot did **not** satisfy item 2. Therefore API/BYOK implementation remains blocked under the existing gate. Any change to that gate requires a separate repository-governance decision; this status update does not weaken, replace, rerun, or reinterpret the completed Phase H result.
