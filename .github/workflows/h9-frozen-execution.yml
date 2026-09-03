@@ -68,6 +68,7 @@ jobs:
           mkdir -p .h9-audit
 
           test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_RUN_NUMBER" = "1"
           test "$GITHUB_RUN_ATTEMPT" = "1"
           test "$INPUT_FROZEN_SHA" = "$H9_FROZEN_SHA"
           test "$INPUT_DISPATCH_MARKER" = "$H9_DISPATCH_MARKER"
@@ -86,6 +87,7 @@ jobs:
             echo "h9_tree_sha=$(git rev-parse HEAD:benchmarks/h9)"
             echo "dispatch_marker=$INPUT_DISPATCH_MARKER"
             echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_number=${GITHUB_RUN_NUMBER}"
             echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
             echo "runner_name=${RUNNER_NAME}"
             echo "runner_os=${RUNNER_OS}"
