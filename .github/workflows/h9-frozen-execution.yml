@@ -17,7 +17,7 @@ jobs:
     runs-on:
       - self-hosted
       - linux
-      - h9-benchmark
+      - h8-benchmark
     timeout-minutes: 1380
 
     steps:
