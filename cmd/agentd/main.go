@@ -39,7 +39,18 @@ type h1ExecutionRequest struct {
 type h1Executor func(context.Context, h1ExecutionRequest) (benchmark.RunResult, error)
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWithH9BenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark, executeH5Benchmark, executeH6Benchmark, executeH7Benchmark, executeH8Benchmark, executeH9Benchmark)
+	return runWithPhaseHBenchmarkExecutors(args, stdout, stderr, executeH1Benchmark, executeH2Benchmark, executeH3Benchmark, executeH4Benchmark, executeH5Benchmark, executeH6Benchmark, executeH7Benchmark, executeH8Benchmark, executeH9Benchmark, executePhaseHBenchmark)
+}
+
+func runWithPhaseHBenchmarkExecutor(args []string, stdout, stderr io.Writer, executePhaseH phaseHExecutor) int {
+	return runWithPhaseHBenchmarkExecutors(args, stdout, stderr, nil, nil, nil, nil, nil, nil, nil, nil, nil, executePhaseH)
+}
+
+func runWithPhaseHBenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 h4Executor, executeH5 h5Executor, executeH6 h6Executor, executeH7 h7Executor, executeH8 h8Executor, executeH9 h9Executor, executePhaseH phaseHExecutor) int {
+	if len(args) >= 3 && args[0] == "council" && args[1] == "benchmark" && args[2] == "phase-h" {
+		return runCouncilBenchmarkPhaseH(args[3:], stdout, stderr, executePhaseH)
+	}
+	return runWithH9BenchmarkExecutors(args, stdout, stderr, executeH1, executeH2, executeH3, executeH4, executeH5, executeH6, executeH7, executeH8, executeH9)
 }
 
 func runWithH9BenchmarkExecutors(args []string, stdout, stderr io.Writer, executeH1 h1Executor, executeH2 h2Executor, executeH3 h3Executor, executeH4 h4Executor, executeH5 h5Executor, executeH6 h6Executor, executeH7 h7Executor, executeH8 h8Executor, executeH9 h9Executor) int {
@@ -429,6 +440,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h3 [--dataset benchmarks/h3] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h4 [--dataset benchmarks/h4] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
 	_, _ = fmt.Fprintln(w, "  agentd council benchmark h5 [--dataset benchmarks/h5] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP] [--claude-bin claude] [--codex-bin codex]")
+	_, _ = fmt.Fprintln(w, "  agentd council benchmark phase-h [--dataset benchmarks/phase-h] [--runs-dir .council/runs] [--config council.yaml] [--temp-root TMP]")
 	_, _ = fmt.Fprintln(w, "  agentd council broker submit --run-root RUN --request-id REQ --response-file FILE (--fresh-session|--current-session) [--model-label LABEL]")
 	_, _ = fmt.Fprintln(w, "  agentd council doctor isolation [--claude-bin claude] [--codex-bin codex]")
 }
