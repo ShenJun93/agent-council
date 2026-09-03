@@ -1,0 +1,272 @@
+name: H9 Frozen Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      frozen_sha:
+        description: 'Type the frozen H9 implementation SHA to authorize this dispatch'
+        required: true
+        type: string
+      dispatch_marker:
+        description: 'Governed single-dispatch marker recorded on Issue #48'
+        required: true
+        type: string
+      current_session_attestation:
+        description: 'Attest that the current orchestrating ChatGPT web conversation will broker all H9 evaluator calls'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: h9-frozen-execution-single-dispatch
+  cancel-in-progress: false
+
+env:
+  H9_FROZEN_SHA: 316131032e383051731f8b229930817527056cc8
+  H9_TREE_SHA: fef2656732d9d101ca16be3f456b5263cc9bf851
+  H9_MANIFEST_SHA256: 3b062e0738b578d9a1c355555569a705cdeeb700bf7b6abcb2a9c2f8a14760bb
+  H9_RUBRIC_SHA256: 644d0ee576c4564b124c2303a9208c142e261b9ba6ef96d78ad706616c17b952
+  H9_ADAPTER_POLICY_SHA256: 3f20cb1ab9f160e140b6fb34fcdf9e3285dd9504f3def5df746ff047ea27fb6a
+  H9_DISPATCH_MARKER: issue-48-h9-real-run-1
+
+jobs:
+  h9:
+    name: h9-frozen-execution
+    if: github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - linux
+      - h9-benchmark
+    timeout-minutes: 1380
+
+    steps:
+      - name: Checkout frozen H9 implementation
+        uses: actions/checkout@v7
+        with:
+          ref: 316131032e383051731f8b229930817527056cc8
+          clean: true
+          persist-credentials: false
+
+      - name: Set up Go 1.26
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify governed dispatch and frozen checkout
+        shell: bash
+        env:
+          INPUT_FROZEN_SHA: ${{ inputs.frozen_sha }}
+          INPUT_DISPATCH_MARKER: ${{ inputs.dispatch_marker }}
+          INPUT_CURRENT_SESSION: ${{ inputs.current_session_attestation }}
+        run: |
+          set -euo pipefail
+          mkdir -p .h9-audit
+
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$INPUT_FROZEN_SHA" = "$H9_FROZEN_SHA"
+          test "$INPUT_DISPATCH_MARKER" = "$H9_DISPATCH_MARKER"
+          test "$INPUT_CURRENT_SESSION" = "true"
+
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$H9_FROZEN_SHA"
+          test -z "$(git status --short)"
+          test "$(git rev-parse HEAD:benchmarks/h9)" = "$H9_TREE_SHA"
+          test ! -e .council/runs
+
+          {
+            echo "trigger_sha=${GITHUB_SHA}"
+            echo "trigger_ref=${GITHUB_REF}"
+            echo "frozen_sha=$actual"
+            echo "h9_tree_sha=$(git rev-parse HEAD:benchmarks/h9)"
+            echo "dispatch_marker=$INPUT_DISPATCH_MARKER"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+          } | tee .h9-audit/preflight.txt
+
+      - name: Verify exact H9 dataset hashes and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum benchmarks/h9/manifest.json | awk '{print $1}')" = "$H9_MANIFEST_SHA256"
+          test "$(sha256sum benchmarks/h9/rubric.json | awk '{print $1}')" = "$H9_RUBRIC_SHA256"
+          test "$(sha256sum benchmarks/h9/adapter-policy.json | awk '{print $1}')" = "$H9_ADAPTER_POLICY_SHA256"
+
+          grep -Fq '"source_workflow_run_id":33349114073' benchmarks/h9/manifest.json
+          grep -Fq '"source_frozen_sha":"8d13f0a82758f5ea6286409d55123b97929dbce4"' benchmarks/h9/manifest.json
+          grep -Fq '"source_h8_run_id":"h8-20260831T015809Z-e8ab51986046"' benchmarks/h9/manifest.json
+          grep -Fq '"source_h8_artifact_digest":"sha256:c37cbab9cb4d1a8c5b4f6cc2535268c681456d2b6380587fb178396ae9dedfd6"' benchmarks/h9/manifest.json
+          grep -Fq '"benchmark_id":"h9"' benchmarks/h9/manifest.json
+          grep -Fq '"mode":"focused_replay_regression"' benchmarks/h9/manifest.json
+
+          sha256sum benchmarks/h9/manifest.json benchmarks/h9/rubric.json benchmarks/h9/adapter-policy.json \
+            | tee .h9-audit/dataset.sha256
+          find benchmarks/h9 -type f -print0 | sort -z | xargs -0 sha256sum \
+            | tee .h9-audit/all-h9-files.sha256
+
+          go test ./internal/council/benchmark \
+            -run '^TestLoadH9ReplayAcceptsCommittedFrozenReplay$' \
+            -count=1 2>&1 | tee .h9-audit/h9-loader-test.txt
+
+      - name: Reject metered API credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "metered API credentials are forbidden for H9; unset $key" >&2
+              exit 1
+            fi
+          done
+          echo 'metered_api_credentials=absent' | tee -a .h9-audit/preflight.txt
+          echo 'legacy_provider_probe=not_performed' | tee -a .h9-audit/preflight.txt
+          go version | tee -a .h9-audit/preflight.txt
+
+      - name: Verify current-session human broker contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./cmd/agentd \
+            -run '^(TestH9RegistryUsesCurrentOrchestratorSessionBroker|TestCouncilBrokerSubmitSupportsCurrentOrchestratorSession)$' \
+            -count=1 2>&1 | tee .h9-audit/current-session-contract-test.txt
+
+      - name: Verify repository tests on frozen commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./... 2>&1 | tee .h9-audit/go-test.txt
+
+      - name: Execute H9 exactly once
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [[ -e .h9-audit/execution-marker.txt ]]; then
+            echo 'H9 execution marker already exists; refusing a second execution' >&2
+            exit 1
+          fi
+          ( set -o noclobber; printf 'workflow_run_id=%s\nworkflow_run_attempt=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > .h9-audit/execution-marker.txt )
+
+          set +e
+          go run ./cmd/agentd council benchmark h9 \
+            --dataset benchmarks/h9 \
+            --runs-dir .council/runs \
+            > >(tee .h9-audit/h9-output.json) \
+            2> >(tee .h9-audit/h9-stderr.log >&2)
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" | tee .h9-audit/exit-code.txt
+          exit "$rc"
+
+      - name: Collect H9 audit evidence
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .h9-audit
+          : > .h9-audit/key-artifacts.sha256
+          : > .h9-audit/all-run-artifacts.sha256
+          : > .h9-audit/run-files.txt
+          : > .h9-audit/broker-files.txt
+          : > .h9-audit/invocation-files.txt
+
+          if [[ -d .council/runs ]]; then
+            mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+            printf 'run_dir_count=%d\n' "${#run_dirs[@]}" | tee -a .h9-audit/audit.txt
+            if [[ ${#run_dirs[@]} -eq 1 ]]; then
+              run_dir="${run_dirs[0]}"
+              printf 'run_dir=%s\n' "$run_dir" | tee -a .h9-audit/audit.txt
+              printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .h9-audit/audit.txt
+              find "$run_dir" -type f -print | sort | tee .h9-audit/run-files.txt
+              find "$run_dir" -path '*/human-broker/*' -type f -print | sort | tee .h9-audit/broker-files.txt
+              find "$run_dir" -type f \( -iname '*invocation*' -o -path '*/invocations/*' \) -print | sort | tee .h9-audit/invocation-files.txt
+              for rel in h9-run.json eval/batch-summary.json adapter-summary.json h9-result.json; do
+                path="$run_dir/$rel"
+                if [[ -f "$path" ]]; then
+                  sha256sum "$path" | tee -a .h9-audit/key-artifacts.sha256
+                fi
+              done
+            fi
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> .h9-audit/all-run-artifacts.sha256
+            done < <(find .council/runs -type f -print0 | sort -z)
+          else
+            echo 'run_dir_count=0' | tee -a .h9-audit/audit.txt
+          fi
+
+          {
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "workflow_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [[ -f .h9-audit/exit-code.txt ]]; then
+              echo "benchmark_exit_code=$(cat .h9-audit/exit-code.txt)"
+            else
+              echo "benchmark_exit_code=not_started"
+            fi
+          } | tee -a .h9-audit/audit.txt
+
+          cat .h9-audit/audit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s .h9-audit/key-artifacts.sha256 ]]; then
+            {
+              echo
+              echo 'Key artifact SHA-256:'
+              echo '```text'
+              cat .h9-audit/key-artifacts.sha256
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Validate successful H9 current-session evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .h9-audit/exit-code.txt ]] || [[ "$(cat .h9-audit/exit-code.txt)" != "0" ]]; then
+            echo 'benchmark did not succeed; completion evidence validation is not applicable'
+            exit 0
+          fi
+
+          mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+          test "${#run_dirs[@]}" -eq 1
+          run_dir="${run_dirs[0]}"
+          test -f "$run_dir/h9-run.json"
+          test -f "$run_dir/eval/batch-summary.json"
+          test -f "$run_dir/adapter-summary.json"
+          test -f "$run_dir/h9-result.json"
+
+          mapfile -t requests < <(find "$run_dir/human-broker" -type f -name request.json -print | sort)
+          mapfile -t responses < <(find "$run_dir/human-broker" -type f -name response.json -print | sort)
+          test "${#requests[@]}" -eq 24
+          test "${#responses[@]}" -eq 24
+
+          for file in "${requests[@]}"; do
+            grep -Eq '"require_current_session"[[:space:]]*:[[:space:]]*true' "$file"
+            grep -Eq '"require_fresh_session"[[:space:]]*:[[:space:]]*false' "$file"
+          done
+          for file in "${responses[@]}"; do
+            grep -Eq '"current_session"[[:space:]]*:[[:space:]]*true' "$file"
+            grep -Eq '"fresh_session"[[:space:]]*:[[:space:]]*false' "$file"
+          done
+
+          echo 'successful_current_session_requests=24' | tee -a .h9-audit/audit.txt
+          echo 'successful_current_session_responses=24' | tee -a .h9-audit/audit.txt
+
+      - name: Upload full or partial H9 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h9-frozen-${{ github.run_id }}
+          path: |
+            .h9-audit
+            .council/runs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
