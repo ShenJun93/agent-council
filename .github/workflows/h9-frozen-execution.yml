@@ -121,8 +121,12 @@ jobs:
               run_dir="${run_dirs[0]}"
               printf 'run_dir=%s\n' "$run_dir" | tee -a .h9-audit/audit.txt
               printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .h9-audit/audit.txt
-              request_count="$(find "$run_dir/human-broker" -type f -name request.json 2>/dev/null | wc -l | tr -d ' ')"
-              response_count="$(find "$run_dir/human-broker" -type f -name response.json 2>/dev/null | wc -l | tr -d ' ')"
+              request_count=0
+              response_count=0
+              if [[ -d "$run_dir/human-broker" ]]; then
+                request_count="$(find "$run_dir/human-broker" -type f -name request.json | wc -l | tr -d ' ')"
+                response_count="$(find "$run_dir/human-broker" -type f -name response.json | wc -l | tr -d ' ')"
+              fi
               printf 'human_broker_request_count=%s\n' "$request_count" | tee -a .h9-audit/audit.txt
               printf 'human_broker_response_count=%s\n' "$response_count" | tee -a .h9-audit/audit.txt
               for rel in h9-run.json eval/batch-summary.json h9-result.json; do
