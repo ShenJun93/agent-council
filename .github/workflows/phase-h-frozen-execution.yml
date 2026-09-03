@@ -1,0 +1,278 @@
+name: Phase H Frozen Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      frozen_sha:
+        description: 'Type the frozen Phase H implementation SHA to authorize this dispatch'
+        required: true
+        type: string
+      dispatch_marker:
+        description: 'Governed single-dispatch marker recorded on Issue #56'
+        required: true
+        type: string
+      current_session_attestation:
+        description: 'Attest that the current orchestrating ChatGPT web conversation will broker all Phase H evaluator calls'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-h-frozen-execution-single-dispatch
+  cancel-in-progress: false
+
+env:
+  PHASE_H_FROZEN_SHA: 6d9aa5283180c7a08d7ccd69d6fbbd67171c8380
+  PHASE_H_TREE_SHA: 8b27995e8efaff578ba1f4e668c18aa59dc4e03d
+  PHASE_H_MANIFEST_SHA256: 208b2e5fe1887edf7bd5e8b473de1788f7e08211de62c941eaba7569a61f93d3
+  PHASE_H_RUBRIC_SHA256: 644d0ee576c4564b124c2303a9208c142e261b9ba6ef96d78ad706616c17b952
+  PHASE_H_ADAPTER_POLICY_SHA256: b2562f4842c1828746f5337e0300966eeda4c0a1f0afdd0a392991fba11ab11c
+  PHASE_H_DISPATCH_MARKER: issue-56-phase-h-real-run-1
+
+jobs:
+  phase_h:
+    name: phase-h-frozen-execution
+    if: github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - linux
+      - phase-h-benchmark
+    timeout-minutes: 1380
+
+    steps:
+      - name: Checkout frozen Phase H implementation
+        uses: actions/checkout@v7
+        with:
+          ref: 6d9aa5283180c7a08d7ccd69d6fbbd67171c8380
+          clean: true
+          persist-credentials: false
+
+      - name: Set up Go 1.26
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify governed dispatch and frozen checkout
+        shell: bash
+        env:
+          INPUT_FROZEN_SHA: ${{ inputs.frozen_sha }}
+          INPUT_DISPATCH_MARKER: ${{ inputs.dispatch_marker }}
+          INPUT_CURRENT_SESSION: ${{ inputs.current_session_attestation }}
+        run: |
+          set -euo pipefail
+          mkdir -p .phase-h-audit
+
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$INPUT_FROZEN_SHA" = "$PHASE_H_FROZEN_SHA"
+          test "$INPUT_DISPATCH_MARKER" = "$PHASE_H_DISPATCH_MARKER"
+          test "$INPUT_CURRENT_SESSION" = "true"
+
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$PHASE_H_FROZEN_SHA"
+          test -z "$(git status --short)"
+          test "$(git rev-parse HEAD:benchmarks/phase-h)" = "$PHASE_H_TREE_SHA"
+          test ! -e .council/runs
+
+          {
+            echo "trigger_sha=${GITHUB_SHA}"
+            echo "trigger_ref=${GITHUB_REF}"
+            echo "frozen_sha=$actual"
+            echo "phase_h_tree_sha=$(git rev-parse HEAD:benchmarks/phase-h)"
+            echo "dispatch_marker=$INPUT_DISPATCH_MARKER"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_number=${GITHUB_RUN_NUMBER}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+          } | tee .phase-h-audit/preflight.txt
+
+      - name: Verify exact Phase H dataset hashes and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum benchmarks/phase-h/manifest.json | awk '{print $1}')" = "$PHASE_H_MANIFEST_SHA256"
+          test "$(sha256sum benchmarks/phase-h/rubric.json | awk '{print $1}')" = "$PHASE_H_RUBRIC_SHA256"
+          test "$(sha256sum benchmarks/phase-h/adapter-policy.json | awk '{print $1}')" = "$PHASE_H_ADAPTER_POLICY_SHA256"
+
+          grep -Fq '"source_workflow_run_id":33349114073' benchmarks/phase-h/manifest.json
+          grep -Fq '"source_frozen_sha":"8d13f0a82758f5ea6286409d55123b97929dbce4"' benchmarks/phase-h/manifest.json
+          grep -Fq '"source_h8_run_id":"h8-20260831T015809Z-e8ab51986046"' benchmarks/phase-h/manifest.json
+          grep -Fq '"source_h8_artifact_digest":"sha256:c37cbab9cb4d1a8c5b4f6cc2535268c681456d2b6380587fb178396ae9dedfd6"' benchmarks/phase-h/manifest.json
+          grep -Fq '"source_h8_artifact_id":9745340503' benchmarks/phase-h/manifest.json
+          grep -Fq '"expected_successful_invocations":120' benchmarks/phase-h/manifest.json
+          grep -Fq '"require_current_session":true' benchmarks/phase-h/manifest.json
+          grep -Fq '"require_fresh_session":false' benchmarks/phase-h/manifest.json
+          grep -Fq '"benchmark_id":"phase-h"' benchmarks/phase-h/manifest.json
+          grep -Fq '"mode":"technical_value_validation_replay"' benchmarks/phase-h/manifest.json
+
+          sha256sum benchmarks/phase-h/manifest.json benchmarks/phase-h/rubric.json benchmarks/phase-h/adapter-policy.json \
+            | tee .phase-h-audit/dataset.sha256
+          find benchmarks/phase-h -type f -print0 | sort -z | xargs -0 sha256sum \
+            | tee .phase-h-audit/all-phase-h-files.sha256
+
+          go test ./internal/council/benchmark \
+            -run '^TestLoadPhaseHReplayAcceptsCommittedFrozenReplay$' \
+            -count=1 2>&1 | tee .phase-h-audit/phase-h-loader-test.txt
+
+      - name: Reject metered API credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "metered API credentials are forbidden for Phase H; unset $key" >&2
+              exit 1
+            fi
+          done
+          echo 'metered_api_credentials=absent' | tee -a .phase-h-audit/preflight.txt
+          echo 'legacy_provider_probe=not_performed' | tee -a .phase-h-audit/preflight.txt
+          go version | tee -a .phase-h-audit/preflight.txt
+
+      - name: Verify current-session human broker contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./cmd/agentd \
+            -run '^(TestPhaseHRegistryUsesCurrentOrchestratorSessionBroker|TestCouncilBrokerSubmitSupportsCurrentOrchestratorSession)$' \
+            -count=1 2>&1 | tee .phase-h-audit/current-session-contract-test.txt
+
+      - name: Verify repository tests on frozen commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./... 2>&1 | tee .phase-h-audit/go-test.txt
+
+      - name: Execute Phase H exactly once
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [[ -e .phase-h-audit/execution-marker.txt ]]; then
+            echo 'Phase H execution marker already exists; refusing a second execution' >&2
+            exit 1
+          fi
+          ( set -o noclobber; printf 'workflow_run_id=%s\nworkflow_run_attempt=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > .phase-h-audit/execution-marker.txt )
+
+          set +e
+          go run ./cmd/agentd council benchmark phase-h \
+            --dataset benchmarks/phase-h \
+            --runs-dir .council/runs \
+            > >(tee .phase-h-audit/phase-h-output.json) \
+            2> >(tee .phase-h-audit/phase-h-stderr.log >&2)
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" | tee .phase-h-audit/exit-code.txt
+          exit "$rc"
+
+      - name: Collect Phase H audit evidence
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .phase-h-audit
+          : > .phase-h-audit/key-artifacts.sha256
+          : > .phase-h-audit/all-run-artifacts.sha256
+          : > .phase-h-audit/run-files.txt
+          : > .phase-h-audit/broker-files.txt
+          : > .phase-h-audit/invocation-files.txt
+
+          if [[ -d .council/runs ]]; then
+            mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+            printf 'run_dir_count=%d\n' "${#run_dirs[@]}" | tee -a .phase-h-audit/audit.txt
+            if [[ ${#run_dirs[@]} -eq 1 ]]; then
+              run_dir="${run_dirs[0]}"
+              printf 'run_dir=%s\n' "$run_dir" | tee -a .phase-h-audit/audit.txt
+              printf 'run_id=%s\n' "$(basename "$run_dir")" | tee -a .phase-h-audit/audit.txt
+              find "$run_dir" -type f -print | sort | tee .phase-h-audit/run-files.txt
+              find "$run_dir" -path '*/human-broker/*' -type f -print | sort | tee .phase-h-audit/broker-files.txt
+              find "$run_dir" -type f \( -iname '*invocation*' -o -path '*/invocations/*' \) -print | sort | tee .phase-h-audit/invocation-files.txt
+              for rel in phase-h-run.json eval/batch-summary.json adapter-summary.json phase-h-result.json; do
+                path="$run_dir/$rel"
+                if [[ -f "$path" ]]; then
+                  sha256sum "$path" | tee -a .phase-h-audit/key-artifacts.sha256
+                fi
+              done
+            fi
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> .phase-h-audit/all-run-artifacts.sha256
+            done < <(find .council/runs -type f -print0 | sort -z)
+          else
+            echo 'run_dir_count=0' | tee -a .phase-h-audit/audit.txt
+          fi
+
+          {
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "workflow_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [[ -f .phase-h-audit/exit-code.txt ]]; then
+              echo "benchmark_exit_code=$(cat .phase-h-audit/exit-code.txt)"
+            else
+              echo "benchmark_exit_code=not_started"
+            fi
+          } | tee -a .phase-h-audit/audit.txt
+
+          cat .phase-h-audit/audit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s .phase-h-audit/key-artifacts.sha256 ]]; then
+            {
+              echo
+              echo 'Key artifact SHA-256:'
+              echo '```text'
+              cat .phase-h-audit/key-artifacts.sha256
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Validate successful Phase H current-session evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .phase-h-audit/exit-code.txt ]] || [[ "$(cat .phase-h-audit/exit-code.txt)" != "0" ]]; then
+            echo 'benchmark did not succeed; completion evidence validation is not applicable'
+            exit 0
+          fi
+
+          mapfile -t run_dirs < <(find .council/runs -mindepth 1 -maxdepth 1 -type d -print | sort)
+          test "${#run_dirs[@]}" -eq 1
+          run_dir="${run_dirs[0]}"
+          test -f "$run_dir/phase-h-run.json"
+          test -f "$run_dir/eval/batch-summary.json"
+          test -f "$run_dir/adapter-summary.json"
+          test -f "$run_dir/phase-h-result.json"
+
+          mapfile -t requests < <(find "$run_dir/human-broker" -type f -name request.json -print | sort)
+          mapfile -t responses < <(find "$run_dir/human-broker" -type f -name response.json -print | sort)
+          test "${#requests[@]}" -eq 120
+          test "${#responses[@]}" -eq 120
+
+          for file in "${requests[@]}"; do
+            grep -Eq '"require_current_session"[[:space:]]*:[[:space:]]*true' "$file"
+            grep -Eq '"require_fresh_session"[[:space:]]*:[[:space:]]*false' "$file"
+          done
+          for file in "${responses[@]}"; do
+            grep -Eq '"current_session"[[:space:]]*:[[:space:]]*true' "$file"
+            grep -Eq '"fresh_session"[[:space:]]*:[[:space:]]*false' "$file"
+          done
+
+          echo 'successful_current_session_requests=120' | tee -a .phase-h-audit/audit.txt
+          echo 'successful_current_session_responses=120' | tee -a .phase-h-audit/audit.txt
+
+      - name: Upload full or partial Phase H evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-h-frozen-${{ github.run_id }}
+          path: |
+            .phase-h-audit
+            .council/runs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
