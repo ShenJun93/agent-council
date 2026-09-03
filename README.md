@@ -18,7 +18,9 @@ The v0 implementation is intentionally small:
 
 **Pre-v0 / validation-first.**
 
-The project is not yet claiming that multi-agent councils are better. The first milestone is to measure whether they are.
+The governed Phase H technical value-validation pilot completed on September 3, 2026. It evaluated the frozen 10-case technical corpus with 120 evaluator calls and produced a pre-registered **FAIL** outcome: Council mean delta versus the strongest frozen single-agent baseline was `-1.38`, with zero materially-worse cases.
+
+Accordingly, the project does **not** claim that Council has demonstrated measurable value over strong single-agent baselines. Product-domain value remains untested because the frozen source artifacts did not contain a complete product A-F candidate set. See issue [`#56`](https://github.com/ShenJun93/agent-council/issues/56) and workflow run [`33747506790`](https://github.com/ShenJun93/agent-council/actions/runs/33747506790).
 
 ## Open-core model
 
@@ -44,7 +46,7 @@ bash scripts/install-agpl-license.sh
 
 ## Future runtime direction
 
-The v0 public core is subscription-first, but the runtime boundary is intentionally designed so future releases can support both subscription and direct API execution.
+The public core remains subscription-first, and the runtime boundary is intentionally designed so a future release could support both subscription and direct API execution.
 
 The permanent rule is **explicit mode selection**:
 
@@ -52,8 +54,8 @@ The permanent rule is **explicit mode selection**:
 - API execution is a separate runtime
 - subscription quota exhaustion never silently falls back to a metered API
 
-See [`docs/FUTURE_RUNTIME_EXPANSION.md`](docs/FUTURE_RUNTIME_EXPANSION.md).
+Direct API/BYOK work is **not currently authorized** because the Phase H measurable-value gate was not satisfied. See [`docs/FUTURE_RUNTIME_EXPANSION.md`](docs/FUTURE_RUNTIME_EXPANSION.md).
 
 ## Development status
 
-Repository governance and validation infrastructure are being bootstrapped before v0 implementation begins.
+The core implementation, governance, benchmark infrastructure, and frozen technical Phase H pilot are complete. Any further value-validation work or runtime expansion requires separate governance; the completed Phase H run must not be reinterpreted post hoc.

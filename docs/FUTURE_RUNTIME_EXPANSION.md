@@ -2,11 +2,13 @@
 
 ## Status
 
-**Deferred until Phase H passes.**
+**Blocked: the Phase H measurable-value gate is not satisfied.**
 
-This document records an architectural extension point so v0 implementation does not accidentally make future API support difficult.
+The governed Phase H technical value-validation pilot completed on September 3, 2026. The frozen 10-case technical pilot executed successfully with 120 evaluator calls, but its pre-registered outcome was **FAIL** because Council mean delta versus the strongest frozen single-agent baseline was `-1.38` (non-positive). There were zero materially-worse cases. Product-domain value remains untested because no complete frozen product A-F candidate corpus was available.
 
-It is not an implementation requirement for v0.
+Source-of-truth audit references: issue [`#56`](https://github.com/ShenJun93/agent-council/issues/56) and workflow run [`33747506790`](https://github.com/ShenJun93/agent-council/actions/runs/33747506790).
+
+This document records an architectural extension point so the public core does not accidentally make future API support difficult. It does **not** authorize API/BYOK implementation, and the completed Phase H result must not be reinterpreted by post-hoc threshold changes.
 
 ---
 
@@ -203,3 +205,5 @@ No API/BYOK implementation before:
 1. Phase C proves filesystem blindness.
 2. Phase H pilot shows Council has measurable value.
 3. A concrete pain exists that subscription-only execution cannot address economically or experimentally.
+
+The September 3, 2026 Phase H technical pilot did **not** satisfy item 2. Therefore API/BYOK implementation remains blocked under the existing gate. Any change to that gate requires a separate repository-governance decision; this status update does not weaken, replace, rerun, or reinterpret the completed Phase H result.
