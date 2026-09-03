@@ -10,8 +10,9 @@ usage() {
 Usage: bash scripts/bootstrap-benchmark-runner.sh --benchmark <id> [--preflight-only]
 
 Registers one ephemeral Linux GitHub Actions runner for a frozen benchmark workflow.
-Run this as the same non-root user whose Claude Code and Codex CLIs are already
-signed in with subscription-backed accounts.
+Run this as a non-root user with GitHub runner-registration access. Benchmarks that
+use subscription CLIs must run as the user that owns those sessions; H9 uses only
+the human ChatGPT web broker.
 EOF
 }
 
@@ -35,6 +36,8 @@ BENCHMARK_UPPER="${BENCHMARK^^}"
 metered_keys=(OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY)
 if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" || "$BENCHMARK" == "h8" ]]; then
   metered_keys+=(ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY)
+elif [[ "$BENCHMARK" == "h9" ]]; then
+  metered_keys+=(ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN GEMINI_API_KEY GOOGLE_API_KEY AZURE_OPENAI_API_KEY)
 fi
 for key in "${metered_keys[@]}"; do
   if [[ -n "${!key:-}" ]]; then
@@ -50,7 +53,11 @@ registration_token="$(gh api -X POST "repos/$REPO/actions/runners/registration-t
 
 claude_version="unavailable"
 codex_version="unavailable"
-if [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" || "$BENCHMARK" == "h8" ]]; then
+if [[ "$BENCHMARK" == "h9" ]]; then
+  claude_version="not-used"
+  codex_version="not-used"
+  printf '%s human broker: current ChatGPT web session only\n' "$BENCHMARK_UPPER"
+elif [[ "$BENCHMARK" == "h5" || "$BENCHMARK" == "h6" || "$BENCHMARK" == "h7" || "$BENCHMARK" == "h8" ]]; then
   if command -v claude >/dev/null 2>&1; then
     candidate_version="$(claude --version 2>&1 || true)"
     candidate_status="$(claude auth status 2>&1 || true)"
@@ -107,7 +114,7 @@ if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
 fi
 
 if [[ "$(id -u)" == "0" ]]; then
-  die "do not run as root; run as the user that owns the Claude/Codex subscription credentials"
+  die "do not run as root; run as the non-root benchmark runner user"
 fi
 
 for cmd in curl tar awk sed mktemp; do
